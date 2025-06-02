@@ -26,6 +26,13 @@
 pip install pydatamax
 ```
 
+### 一行代码：全自动标注你的文档
+
+```
+datamax --input /path/to/your/file/dictory --output /path/to/your/output/dictory
+```
+
+
 ### 基础用法
 
 ```python
