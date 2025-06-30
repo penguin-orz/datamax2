@@ -610,7 +610,7 @@ def generatr_qa_pairs(
 if __name__ == "__main__":
     # split text into chunks
     page_content = load_and_split_markdown(
-        md_path="15349549.md",  # 请将md文件放在当前目录或传入相对路径
+        md_path=r"C:\知识文件.md"
         chunk_size=500,
         chunk_overlap=100,
     )
