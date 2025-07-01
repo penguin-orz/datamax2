@@ -571,11 +571,11 @@ def generatr_qa_pairs(
     api_key: str,
     base_url: str,
     model_name: str,
-    question_number=5,
+    question_number: int = 5,
     message: list = None,
-    max_workers=5,
-    domain_tree=None,  
-):
+    max_workers: int = 5,
+    domain_tree: Optional[List[Dict[str, Any]]] = None,  
+) -> list:
     qa_pairs = process_answers(
         question_items=question_info,
         message=message,
@@ -610,7 +610,7 @@ def generatr_qa_pairs(
 if __name__ == "__main__":
     # split text into chunks
     page_content = load_and_split_markdown(
-        md_path=r"C:\知识文件.md"
+        md_path=r"C:\知识文件.md",
         chunk_size=500,
         chunk_overlap=100,
     )
@@ -637,8 +637,8 @@ if __name__ == "__main__":
     )
 
     # add unique id to each question
-    for q in question_info:
-        q["qid"] = str(uuid.uuid4())
+    for question_item in question_info:
+        question_item["qid"] = str(uuid.uuid4())
 
     if not question_info:
         logger.error("未能生成任何问题，请检查输入文档和API设置")
@@ -656,21 +656,21 @@ if __name__ == "__main__":
             base_url=BASE_URL,
             model="qwen-plus",
             tags_json=domain_tree,
-            questions= [q["question"] for q in question_info],
+            questions= [question_item["question"] for question_item in question_info],
             max_workers=3
         )
         logger.info(f"问题匹配标签完成, 结果是: {q_match_list}")
         # merge label to question_info
         label_map = {item["question"]: item.get("label", "") for item in q_match_list}
-        for q in question_info:
-            q["label"] = label_map.get(q["question"], "")
+        for question_item in question_info:
+            question_item["label"] = label_map.get(question_item["question"], "")
         # generate unique id-label mapping and save
-        qid_label_map = {q["qid"]: q.get("label", "") for q in question_info}
+        qid_label_map = {question_item["qid"]: question_item.get("label", "") for question_item in question_info}
         with open("question_id_label_map.json", "w", encoding="utf-8") as f:
             json.dump(qid_label_map, f, ensure_ascii=False, indent=2)
         # get filtered question_info
         q_list = [i["question"] for i in question_info]
-        question_info = [{"question": q["question"], "page": q["page"], "qid": q["qid"], "label": q["label"]} for q in question_info if q["question"] in q_list]
+        question_info = [{"question": question_item["question"], "page": question_item["page"], "qid": question_item["qid"], "label": question_item["label"]} for question_item in question_info if question_item["question"] in q_list]
 
     # final answer
     r = generatr_qa_pairs(
