@@ -42,8 +42,8 @@ data = dm.get_data()
 # 数据清洗
 cleaned_data = dm.clean_data(method_list=["abnormal", "private", "filter"])
 
-# AI标注
-qa_data = dm.get_pre_label(
+# 带领域树的AI标注
+qa_data = dm.generate_qa_with_tree(
     api_key="your-api-key",
     base_url="https://api.openai.com/v1",
     model_name="gpt-3.5-turbo"
@@ -197,18 +197,20 @@ for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=
     print(chunk)
 ```
 
-### AI标注
+### AI标注（带领域树标签）
 
 ```python
-# 自定义标注任务
-qa_data = dm.get_pre_label(
-    api_key="sk-xxx",
-    base_url="https://api.provider.com/v1",
-    model_name="model-name",
-    chunk_size=500,        # 文本块大小
-    chunk_overlap=100,     # 重叠长度
-    question_number=5,     # 每块生成问题数
-    max_workers=5          # 并发数
+# 带领域树的自动问答标注
+
+dm = DataMax(file_path="your_file.md")
+qa_data = dm.generate_qa_with_tree(
+    api_key="sk-xxx",         
+    base_url="https://api.provider.com/v1",  
+    model_name="model-name",   
+    chunk_size=500,             # 文本块大小
+    chunk_overlap=100,          # 块重叠长度
+    question_number=5,          # 每块生成问题数
+    max_workers=5               # 并发线程数
 )
 # 保存结果
 dm.save_label_data(res)
