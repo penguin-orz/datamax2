@@ -196,7 +196,7 @@ for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=
     print(chunk)
 ```
 
-### AI annotation with domain tree
+### AI Annotation with Domain Tree
 
 ```python
 
