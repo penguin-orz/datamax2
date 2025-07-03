@@ -236,26 +236,96 @@ class DataMax:
         else:
             return cleaned_text
 
-    def get_pre_label(self,
-                      api_key: str,
-                      base_url: str,
-                      model_name: str,
-                      chunk_size: int = 500,
-                      chunk_overlap: int = 100,
-                      question_number: int = 5,
-                      max_workers: int = 5,
-                      messages: List[Dict[str, str]] = None):
-        return generatr_qa_pairs(
-            api_key=api_key,
-            base_url=base_url,
-            model_name=model_name,
+    def generate_qa_with_tree(
+        self,
+        api_key: str,
+        base_url: str,
+        model_name: str,
+        chunk_size: int = 500,
+        chunk_overlap: int = 100,
+        question_number: int = 5,
+        max_workers: int = 5,
+        messages: list = None
+    ) -> list:
+        """
+        Whole process for qa generation with domain tree label
+        :param api_key: Api key read from .env
+        :param base_url: Base url read from .env
+        :param model_name: Model name user chooses
+        :param chunk_size: Maximum length of each chunk
+        :param chunk_overlap: Number of overlapping characters between chunks
+        :param question_number: Question number wish to generate
+        :param max_workers: Max workers for multi-threading
+        :param messages: Messages for model
+        :return: List of QA pairs
+        """
+        from datamax.utils.qa_generator import (
+            load_and_split_markdown,
+            process_domain_tree,
+            process_questions,
+            process_match_tags,
+            generatr_qa_pairs
+        )
+        import uuid
+        # 1. split
+        page_content = load_and_split_markdown(
+            md_path=self.file_path,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
+        )
+        if not page_content:
+            raise ValueError("文档切分失败或内容为空")
+
+        # 2. generate domain tree
+        domain_tree = process_domain_tree(
+            api_key=api_key,
+            base_url=base_url,
+            model=model_name,
+            text="\n".join(page_content),
+            temperature=0.7,
+            top_p=0.9,
+        )
+        # 3. generate questions
+        question_info = process_questions(
+            api_key=api_key,
+            model=model_name,
+            base_url=base_url,
+            page_content=page_content,
             question_number=question_number,
             max_workers=max_workers,
             message=messages,
-            file_path=self.file_path
         )
+        # add qid
+        for question_item in question_info:
+            if "qid" not in question_item:
+                question_item["qid"] = str(uuid.uuid4())
+
+        # 4. match tags
+        if domain_tree and hasattr(domain_tree, 'to_json') and domain_tree.to_json():
+            q_match_list = process_match_tags(
+                api_key=api_key,
+                base_url=base_url,
+                model=model_name,
+                tags_json=domain_tree.to_json(),
+                questions=[q["question"] for q in question_info],
+                max_workers=max_workers
+            )
+            label_map = {item["question"]: item.get("label", "") for item in q_match_list}
+            for question_item in question_info:
+                question_item["label"] = label_map.get(question_item["question"], "")\
+
+        # 5. generate answers
+        qa_list = generatr_qa_pairs(
+            question_info=question_info,
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name,
+            question_number=question_number,
+            max_workers=max_workers,
+            domain_tree=domain_tree
+        )
+        return qa_list
+
 
     def save_label_data(self, label_data: list, save_file_name: str = None):
         """
@@ -407,6 +477,7 @@ class DataMax:
                 return parser.parse(file_path=file_path)
         except Exception as e:
             raise e
+
 
 
 if __name__ == '__main__':
