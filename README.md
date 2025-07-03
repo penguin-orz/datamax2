@@ -42,17 +42,12 @@ data = dm.get_data()
 # Data cleaning
 cleaned_data = dm.clean_data(method_list=["abnormal", "private", "filter"])
 
-# AI annotation
-qa_data = dm.get_pre_label(
-    api_key="sk-xxx",
-    base_url="https://api.provider.com/v1",
-    model_name="model-name",
-    chunk_size=500,        # 文本块大小
-    chunk_overlap=100,     # 重叠长度
-    question_number=5,     # 每块生成问题数
-    max_workers=5          # 并发数
+# AI annotation with domain tree
+qa_data = dm.generate_qa_with_tree(
+    api_key="your-api-key"
+    base_url="https://api.openai.com/v1",
+    model_name="gpt-3.5-turbo",
 )
-dm.save_label_data(res)
 ```
 
 ## 📖 Detailed Documentation
@@ -201,20 +196,29 @@ for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=
     print(chunk)
 ```
 
-### AI Annotation
+### AI annotation with domain tree
 
 ```python
-# Custom annotation tasks
-qa_data = dm.get_pre_label(
-    api_key="sk-xxx",
-    base_url="https://api.provider.com/v1",
-    model_name="model-name",
-    chunk_size=500,        # Text chunk size
-    chunk_overlap=100,     # Overlap length
-    question_number=5,     # Questions per chunk
-    max_workers=5          # Concurrency
+
+#Custom annotation tasks with domain tree
+dm = DataMax(file_path="your_file.md")
+qa_data = dm.generate_qa_with_tree(
+    api_key="sk-xxx",          
+    base_url="https://api.provider.com/v1",         
+    model_name="model-name",          
+    chunk_size=500,                   # Text chunk size
+    chunk_overlap=100,                # Overlap between chunks
+    question_number=5,                # Number of questions per chunk
+    max_workers=5                     # Number of threads for parallel processing
 )
+
+# Save the QA label data to file
+dm.save_label_data(qa_data, save_file_name="qa_label_data")
 ```
+
+
+
+---
 
 ## ⚙️ Environment Setup
 
