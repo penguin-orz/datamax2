@@ -14,13 +14,14 @@ from loguru import logger
 from pyexpat.errors import messages
 from tqdm import tqdm  
 from dotenv import load_dotenv
+from domain_tree import DomainTree   #for cache domain tree
 
 lock = threading.Lock()
 
-load_dotenv()
-
-API_KEY = os.getenv('API_KEY')
-BASE_URL = os.getenv('BASE_URL')
+# ====== API settings======
+# set your api key and base url in .env file
+API_KEY = os.getenv("DASHSCOPE_API_KEY", "your-api-key-here")
+BASE_URL = os.getenv("DASHSCOPE_BASE_URL")
 
 # ------------prompt-----------------
 def get_system_prompt_for_match_label(tags_json, question):
@@ -395,6 +396,7 @@ def process_match_tags(
         future_to_q = {executor.submit(match_one_question, q): q for q in questions}
         for future in as_completed(future_to_q):
             res = future.result()
+            #print(f"问题: {res.get('question', '')} | 匹配标签: {res.get('label', '')}")
             results.append(res)
     logger.success(f"问题匹配标签生成成功, 共生成 {len(results)} 个问题")
     return results
@@ -408,7 +410,7 @@ def process_domain_tree(
     text: str,
     temperature: float = 0.7,
     top_p: float = 0.9,
-):
+) -> DomainTree:
     prompt = get_system_prompt_for_domain_tree(text)
 
     logger.info(f"领域树生成开始...")
@@ -439,12 +441,11 @@ def process_domain_tree(
         if output:
             json_output = extract_json_from_llm_output(output)
             if json_output is not None:
-                with open("./tags.json", "w", encoding="utf-8") as f:
-                    json.dump(json_output, f, ensure_ascii=False, indent=2)
+                domain_tree = DomainTree()
+                domain_tree.from_json(json_output)
                 logger.info(f"领域树生成成功, 共生成 {len(json_output)} 个大标签")
-                return json_output
-
-    return []
+                return domain_tree
+    return DomainTree([])
 
 
 def process_questions(
@@ -477,7 +478,7 @@ def process_questions(
             prompt=prompt,
             type="question",
         )
-        return [{"question": q, "page": page} for q in questions] if questions else []
+        return [{"question": question, "page": page} for question in questions] if questions else []
 
     logger.info(f"开始生成问题 (线程数: {max_workers})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -537,32 +538,8 @@ def process_answers(
 
 # find tagpath by label
 
-def find_tagpath_by_label(
-    domain_tree: list,
-    label: str,
-    path: list = None
-):
-    if path is None:
-        path = []
-    
-    # check if domain_tree is a list
-    if not isinstance(domain_tree, list):
-        logger.warning(f"domain_tree 不是列表类型: {type(domain_tree)}")
-        return None
-        
-    for node in domain_tree:
-        if not isinstance(node, dict):
-            continue
-        current_label = node.get('label')
-        current_path = path + [current_label]
-        if current_label == label:
-            return '/'.join(current_path)
-        # recursive find child node
-        if 'child' in node and isinstance(node['child'], list):
-            result = find_tagpath_by_label(node['child'], label, current_path)
-            if result:
-                return result
-    return None
+def find_tagpath_by_label(domain_tree: DomainTree, label: str):
+    return domain_tree.find_path(label)
 
 
 
@@ -574,7 +551,7 @@ def generatr_qa_pairs(
     question_number: int = 5,
     message: list = None,
     max_workers: int = 5,
-    domain_tree: Optional[List[Dict[str, Any]]] = None,  
+    domain_tree: DomainTree = None,  
 ) -> list:
     qa_pairs = process_answers(
         question_items=question_info,
@@ -610,7 +587,7 @@ def generatr_qa_pairs(
 if __name__ == "__main__":
     # split text into chunks
     page_content = load_and_split_markdown(
-        md_path=r"C:\知识文件.md",
+        md_path="知识图谱.md",  
         chunk_size=500,
         chunk_overlap=100,
     )
@@ -642,20 +619,17 @@ if __name__ == "__main__":
 
     if not question_info:
         logger.error("未能生成任何问题，请检查输入文档和API设置")
-
-    # if tags.json exists, filter question_info
-    if not os.path.exists("./tags.json"):
-        logger.info("tags.json 文件不存在, 未进行打标")
+        
+    # check if domain_tree is empty
+    if not domain_tree or not domain_tree.to_json():
+        logger.info("领域树为空, 未进行打标")
     else:
-        # if tags.json exists, filter question_info
-        with open("./tags.json", "r", encoding="utf-8") as f:
-            tags_json = json.load(f)
-        # question matching label q_match_list must be less than or equal to the questions in question_info
+        # use DomainTree instance to match label
         q_match_list = process_match_tags(
             api_key=API_KEY,
             base_url=BASE_URL,
             model="qwen-plus",
-            tags_json=domain_tree,
+            tags_json=domain_tree.to_json(),
             questions= [question_item["question"] for question_item in question_info],
             max_workers=3
         )
@@ -664,13 +638,9 @@ if __name__ == "__main__":
         label_map = {item["question"]: item.get("label", "") for item in q_match_list}
         for question_item in question_info:
             question_item["label"] = label_map.get(question_item["question"], "")
-        # generate unique id-label mapping and save
-        qid_label_map = {question_item["qid"]: question_item.get("label", "") for question_item in question_info}
-        with open("question_id_label_map.json", "w", encoding="utf-8") as f:
-            json.dump(qid_label_map, f, ensure_ascii=False, indent=2)
         # get filtered question_info
-        q_list = [i["question"] for i in question_info]
-        question_info = [{"question": question_item["question"], "page": question_item["page"], "qid": question_item["qid"], "label": question_item["label"]} for question_item in question_info if question_item["question"] in q_list]
+        question_list = [question_item["question"] for question_item in question_info]
+        question_info = [{"question": question_item["question"], "page": question_item["page"], "qid": question_item["qid"], "label": question_item["label"]} for question_item in question_info if question_item["question"] in question_list]
 
     # final answer
     r = generatr_qa_pairs(
@@ -685,3 +655,4 @@ if __name__ == "__main__":
     )
 
     print(r)
+
