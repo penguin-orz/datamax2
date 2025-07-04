@@ -225,26 +225,60 @@ class DataMax:
         else:
             return cleaned_text
 
-    def get_pre_label(self,
-                      api_key: str,
-                      base_url: str,
-                      model_name: str,
-                      chunk_size: int = 500,
-                      chunk_overlap: int = 100,
-                      question_number: int = 5,
-                      max_workers: int = 5,
-                      messages: List[Dict[str, str]] = None):
-        return generatr_qa_pairs(
-            api_key=api_key,
-            base_url=base_url,
-            model_name=model_name,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            question_number=question_number,
-            max_workers=max_workers,
-            message=messages,
-            file_path=self.file_path
-        )
+    def get_pre_label(
+        self,
+        api_key: str,
+        base_url: str,
+        model_name: str,
+        question_number: int = 5,
+        max_workers: int = 5,
+        multimodal: bool = False, # 新增参数
+        **kwargs
+    ):
+        """
+        根据文件内容生成预标注数据。
+
+        :param file_path: 文件路径
+        :param api_key: API Key
+        :param model_name: 模型名称
+        :param question_number: 每个块生成的问题数量
+        :param max_workers: 最大工作线程数
+        :param multimodal: 是否使用多模态生成器
+        :param kwargs: 其他传递给生成器的参数
+        """
+        file_path = self.file_path
+        if not Path(file_path).exists():
+            logger.error(f"文件不存在: {file_path}")
+            return None
+
+        try:
+            # 根据 multimodal 参数动态选择生成器模块
+            if multimodal:
+                logger.info("使用多模态QA生成器...")
+                generator_module = importlib.import_module("datamax.utils.multimodal_qa_generator")
+            else:
+                logger.info("使用标准QA生成器...")
+                generator_module = importlib.import_module("datamax.utils.qa_generator")
+
+            # 调用所选模块的 generatr_qa_pairs 函数
+            qa_pairs = generator_module.generatr_qa_pairs(
+                file_path=file_path,
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+                question_number=question_number,
+                max_workers=max_workers,
+                **kwargs
+            )
+            return qa_pairs
+        except ImportError as e:
+            logger.error(f"无法导入生成器模块: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"生成预标注数据时发生错误: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
     def save_label_data(self, label_data: list, save_file_name: str = None):
         """
