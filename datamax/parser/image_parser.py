@@ -137,9 +137,9 @@ class ImageParser(BaseLife):
             base_name = pathlib.Path(self.file_path).stem
 
             # 1) 处理开始：生成 DATA_PROCESSING 事件
-            extension = self.get_file_extension(file_path)
+            extension = self.get_file_extension(self.file_path)
             lc_start = self.generate_lifecycle(
-                source_file=file_path,
+                source_file=self.file_path,
                 domain="Technology",
                 life_type=LifeType.DATA_PROCESSING,
                 usage_purpose="Parsing",
@@ -158,7 +158,7 @@ class ImageParser(BaseLife):
             # 2) 处理结束：根据内容是否非空生成 DATA_PROCESSED 或 DATA_PROCESS_FAILED
             content = result.get("content", "")
             lc_end = self.generate_lifecycle(
-                source_file=file_path,
+                source_file=self.file_path,
                 domain="Technology",
                 life_type=(
                     LifeType.DATA_PROCESSED

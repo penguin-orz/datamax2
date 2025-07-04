@@ -265,8 +265,6 @@ class DataMax:
         else:
             return cleaned_text
 
-<<<<<<< HEAD
-=======
     def complete_api_url(self, base_url):
         """
         Automatically complete the API URL path for the website
@@ -310,28 +308,34 @@ class DataMax:
             return f"https://{domain_part}/{path}/v1/chat/completions" if path \
                 else f"https://{domain_part}/v1/chat/completions"
 
->>>>>>> 586fc6e58e8699b098e45076bd45d12c7037c652
     def get_pre_label(
         self,
         api_key: str,
         base_url: str,
         model_name: str,
-<<<<<<< HEAD
+        chunk_size: int = 500,
+        chunk_overlap: int = 100,
         question_number: int = 5,
         max_workers: int = 5,
-        multimodal: bool = False, # 新增参数
+        language: str = "zh",
+        messages: List[Dict[str, str]] = None,
+        multimodal: bool = False,
         **kwargs
-    ):
+    ) -> List[any]:
         """
-        根据文件内容生成预标注数据。
-
-        :param file_path: 文件路径
-        :param api_key: API Key
-        :param model_name: 模型名称
-        :param question_number: 每个块生成的问题数量
-        :param max_workers: 最大工作线程数
-        :param multimodal: 是否使用多模态生成器
-        :param kwargs: 其他传递给生成器的参数
+        Generate pre-labeled data based on the file content.
+        :param api_key: API key
+        :param base_url: API base URL
+        :param model_name: Model name
+        :param chunk_size: Chunk size
+        :param chunk_overlap: Overlap length
+        :param question_number: Number of questions generated per chunk
+        :param max_workers: Number of concurrent workers
+        :param multimodal: Whether to use a multimodal generator
+        :param kwargs: Other parameters passed to the generator
+        :param language: Language for QA generation ("zh" for Chinese, "en" for English)
+        :param messages: Custom messages
+        :return: List of QA pairs
         """
         file_path = self.file_path
         if not Path(file_path).exists():
@@ -339,7 +343,30 @@ class DataMax:
             return None
 
         try:
-            # 根据 multimodal 参数动态选择生成器模块
+            # First get the processed data
+            processed_data = self.get_data()
+
+            # If it's a list (multiple files), merge all content
+            if isinstance(processed_data, list):
+                content_list = []
+                for data in processed_data:
+                    if isinstance(data, dict) and "content" in data:
+                        content_list.append(data["content"])
+                    elif isinstance(data, str):
+                        content_list.append(data)
+                content = "\n\n".join(content_list)
+            # If it's a dictionary for a single file
+            elif isinstance(processed_data, dict) and "content" in processed_data:
+                content = processed_data["content"]
+            # If it's a string
+            elif isinstance(processed_data, str):
+                content = processed_data
+            else:
+                raise ValueError("Unable to extract content field from processed data")
+
+            # complete url
+            base_url = self.complete_api_url(base_url)
+        
             if multimodal:
                 logger.info("使用多模态QA生成器...")
                 generator_module = importlib.import_module("datamax.utils.multimodal_qa_generator")
@@ -358,6 +385,7 @@ class DataMax:
                 **kwargs
             )
             return qa_pairs
+        
         except ImportError as e:
             logger.error(f"无法导入生成器模块: {e}")
             return None
@@ -366,66 +394,6 @@ class DataMax:
             import traceback
             traceback.print_exc()
             return None
-=======
-        chunk_size: int = 500,
-        chunk_overlap: int = 100,
-        question_number: int = 5,
-        max_workers: int = 5,
-        language: str = "zh",
-        messages: List[Dict[str, str]] = None,
-    ):
-        """
-        Generate pre-labeling data based on processed document content instead of file path
-
-        :param api_key: API key
-        :param base_url: API base URL
-        :param model_name: Model name
-        :param chunk_size: Chunk size
-        :param chunk_overlap: Overlap length
-        :param question_number: Number of questions generated per chunk
-        :param max_workers: Number of concurrent workers
-        :param language: Language for QA generation ("zh" for Chinese, "en" for English)
-        :param messages: Custom messages
-        :return: List of QA pairs
-        """
-        # First get the processed data
-        processed_data = self.get_data()
-
-        # If it's a list (multiple files), merge all content
-        if isinstance(processed_data, list):
-            content_list = []
-            for data in processed_data:
-                if isinstance(data, dict) and "content" in data:
-                    content_list.append(data["content"])
-                elif isinstance(data, str):
-                    content_list.append(data)
-            content = "\n\n".join(content_list)
-        # If it's a dictionary for a single file
-        elif isinstance(processed_data, dict) and "content" in processed_data:
-            content = processed_data["content"]
-        # If it's a string
-        elif isinstance(processed_data, str):
-            content = processed_data
-        else:
-            raise ValueError("Unable to extract content field from processed data")
-
-        # complete url
-        base_url = self.complete_api_url(base_url)
-
-        # Generate QA pairs using content instead of reading files
-        return generate_qa_from_content(
-            content=content,
-            api_key=api_key,
-            base_url=base_url,
-            model_name=model_name,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            question_number=question_number,
-            language=language,
-            max_workers=max_workers,
-            message=messages,
-        )
->>>>>>> 586fc6e58e8699b098e45076bd45d12c7037c652
 
     def save_label_data(self, label_data: list, save_file_name: str = None):
         """
