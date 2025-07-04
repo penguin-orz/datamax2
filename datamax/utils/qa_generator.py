@@ -296,7 +296,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int) -> 
         
         logger.info(f"开始处理文件: {file_path}")
         
-        # use DataMax to transfer
+        # 使用DataMax解析文件，自动转换为markdown格式
         dm = DataMax(file_path=file_path, to_markdown=True)
         parsed_data = dm.get_data()
         
@@ -304,9 +304,9 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int) -> 
             logger.error(f"文件解析失败: {file_path}")
             return []
             
-        # extract answers
+        # 获取解析后的内容
         if isinstance(parsed_data, list):
-            # use the first file
+            # 如果是多个文件，取第一个
             content = parsed_data[0].get('content', '')
         else:
             content = parsed_data.get('content', '')
@@ -315,7 +315,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int) -> 
             logger.error(f"文件内容为空: {file_path}")
             return []
             
-        # use LangChain to split
+        # 使用LangChain的文本分割器进行切分
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -323,7 +323,7 @@ def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int) -> 
             is_separator_regex=False,
         )
         
-        # split
+        # 直接分割文本内容
         page_content = splitter.split_text(content)
         logger.info(f"文件被分解了{len(page_content)}个chunk")
         return page_content
@@ -625,6 +625,7 @@ def generatr_qa_pairs(
         answer = qa_pairs.get(question, "")
         tag_path = find_tagpath_by_label(domain_tree, label) if domain_tree else ""
         qid = question_item.get("qid", "")
+        method = "text with tree label" if domain_tree else "text"
         qa_entry = {
             "qid": qid,
             "instruction": question,
@@ -632,7 +633,7 @@ def generatr_qa_pairs(
             "output": answer,
             "label": label,
             "tag-path": tag_path,
-            "method": "text"
+            "method": method
         }
         res_list.append(qa_entry)
     return res_list
