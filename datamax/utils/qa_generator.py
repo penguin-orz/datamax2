@@ -14,7 +14,7 @@ from loguru import logger
 from pyexpat.errors import messages
 from tqdm import tqdm  
 from dotenv import load_dotenv
-from domain_tree import DomainTree   #for cache domain tree
+from datamax.utils.domain_tree import DomainTree   #for cache domain tree
 
 lock = threading.Lock()
 
@@ -276,6 +276,60 @@ def load_and_split_markdown(md_path: str, chunk_size: int, chunk_overlap: int) -
 
     except Exception as e:
         logger.error(f"加载 {Path(md_path).name} 失败: {str(e)}")
+        return []
+
+
+def load_and_split_text(file_path: str, chunk_size: int, chunk_overlap: int) -> list:
+    """
+    Parse other formats to markdown and split
+    
+    Args:
+        file_path: Path to the markdown file
+        chunk_size: Size of each chunk
+        chunk_overlap: Overlap between chunks
+        
+    Returns:
+        List of document chunks
+    """
+    try:
+        from datamax.parser.core import DataMax
+        
+        logger.info(f"开始处理文件: {file_path}")
+        
+        # use DataMax to transfer
+        dm = DataMax(file_path=file_path, to_markdown=True)
+        parsed_data = dm.get_data()
+        
+        if not parsed_data:
+            logger.error(f"文件解析失败: {file_path}")
+            return []
+            
+        # extract answers
+        if isinstance(parsed_data, list):
+            # use the first file
+            content = parsed_data[0].get('content', '')
+        else:
+            content = parsed_data.get('content', '')
+            
+        if not content:
+            logger.error(f"文件内容为空: {file_path}")
+            return []
+            
+        # use LangChain to split
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len,
+            is_separator_regex=False,
+        )
+        
+        # split
+        page_content = splitter.split_text(content)
+        logger.info(f"文件被分解了{len(page_content)}个chunk")
+        return page_content
+        
+    except Exception as e:
+        logger.error(f"处理文件 {Path(file_path).name} 失败: {str(e)}")
         return []
 
 
@@ -651,8 +705,7 @@ if __name__ == "__main__":
         question_number=5,  
         max_workers=10,  
         domain_tree=domain_tree
-        # message=[]
+        # message=[] 
     )
 
     print(r)
-
