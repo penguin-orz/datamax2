@@ -261,18 +261,41 @@ class DataMax:
         """
         from datamax.utils.qa_generator import (
             load_and_split_markdown,
+            load_and_split_text,
             process_domain_tree,
             process_questions,
             process_match_tags,
             generatr_qa_pairs
         )
         import uuid
-        # 1. split
-        page_content = load_and_split_markdown(
-            md_path=self.file_path,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-        )
+        
+        # check path
+        if isinstance(self.file_path, list):
+            if len(self.file_path) == 0:
+                raise ValueError("文件路径列表为空")
+            file_path = self.file_path[0]  # use the first
+        else:
+            file_path = self.file_path
+            
+        # Check file extension
+        file_extension = os.path.splitext(file_path)[1].lower()
+        
+        # 1. split 
+           #for markdown
+        if file_extension == '.md':
+            page_content = load_and_split_markdown(
+                md_path=file_path,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            )
+        else:
+            # non markdown
+            page_content = load_and_split_text(
+                file_path=file_path,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            )
+            
         if not page_content:
             raise ValueError("文档切分失败或内容为空")
 
