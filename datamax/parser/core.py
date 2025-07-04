@@ -215,7 +215,10 @@ class DataMax:
         if text:
             cleaned_text = text
         elif self.parsed_data:
-            cleaned_text = self.parsed_data.get('content')
+            if isinstance(self.parsed_data, dict):
+                cleaned_text = self.parsed_data.get('content', '')
+            else:
+                cleaned_text = str(self.parsed_data)
         else:
             raise ValueError("No data to clean.")
 
@@ -236,7 +239,7 @@ class DataMax:
         else:
             return cleaned_text
 
-    def generate_qa_with_tree(
+    def generate_qa(
         self,
         api_key: str,
         base_url: str,
@@ -245,10 +248,11 @@ class DataMax:
         chunk_overlap: int = 100,
         question_number: int = 5,
         max_workers: int = 5,
-        messages: list = None
+        messages: list = None,
+        use_tree_label: bool = True
     ) -> list:
         """
-        Whole process for qa generation with domain tree label
+        Generate QA pairs from document with optional domain tree labeling
         :param api_key: Api key read from .env
         :param base_url: Base url read from .env
         :param model_name: Model name user chooses
@@ -257,6 +261,7 @@ class DataMax:
         :param question_number: Question number wish to generate
         :param max_workers: Max workers for multi-threading
         :param messages: Messages for model
+        :param use_tree_label: Whether to use domain tree label for generating questions
         :return: List of QA pairs
         """
         from datamax.utils.qa_generator import (
@@ -269,19 +274,18 @@ class DataMax:
         )
         import uuid
         
-        # check path
+        # 检查文件路径类型
         if isinstance(self.file_path, list):
             if len(self.file_path) == 0:
                 raise ValueError("文件路径列表为空")
-            file_path = self.file_path[0]  # use the first
+            file_path = self.file_path[0]  # 取第一个文件
         else:
             file_path = self.file_path
             
-        # Check file extension
+        # 检查文件扩展名
         file_extension = os.path.splitext(file_path)[1].lower()
         
-        # 1. split 
-           #for markdown
+        # 1. split - 根据文件类型选择不同的处理方法
         if file_extension == '.md':
             page_content = load_and_split_markdown(
                 md_path=file_path,
@@ -289,7 +293,7 @@ class DataMax:
                 chunk_overlap=chunk_overlap,
             )
         else:
-            # non markdown
+            # 对于非markdown格式，使用通用文本处理函数
             page_content = load_and_split_text(
                 file_path=file_path,
                 chunk_size=chunk_size,
@@ -299,15 +303,18 @@ class DataMax:
         if not page_content:
             raise ValueError("文档切分失败或内容为空")
 
-        # 2. generate domain tree
-        domain_tree = process_domain_tree(
-            api_key=api_key,
-            base_url=base_url,
-            model=model_name,
-            text="\n".join(page_content),
-            temperature=0.7,
-            top_p=0.9,
-        )
+        # 2. generate domain tree (only if use_tree_label is True)
+        domain_tree = None
+        if use_tree_label:
+            domain_tree = process_domain_tree(
+                api_key=api_key,
+                base_url=base_url,
+                model=model_name,
+                text="\n".join(page_content),
+                temperature=0.7,
+                top_p=0.9,
+            )
+        
         # 3. generate questions
         question_info = process_questions(
             api_key=api_key,
@@ -323,8 +330,8 @@ class DataMax:
             if "qid" not in question_item:
                 question_item["qid"] = str(uuid.uuid4())
 
-        # 4. match tags
-        if domain_tree and hasattr(domain_tree, 'to_json') and domain_tree.to_json():
+        # 4. match tags (only if use_tree_label is True)
+        if use_tree_label and domain_tree and hasattr(domain_tree, 'to_json') and domain_tree.to_json():
             q_match_list = process_match_tags(
                 api_key=api_key,
                 base_url=base_url,
@@ -335,7 +342,11 @@ class DataMax:
             )
             label_map = {item["question"]: item.get("label", "") for item in q_match_list}
             for question_item in question_info:
-                question_item["label"] = label_map.get(question_item["question"], "")\
+                question_item["label"] = label_map.get(question_item["question"], "")
+        else:
+            # If not using tree label, set empty labels
+            for question_item in question_info:
+                question_item["label"] = ""
 
         # 5. generate answers
         qa_list = generatr_qa_pairs(
@@ -345,7 +356,7 @@ class DataMax:
             model_name=model_name,
             question_number=question_number,
             max_workers=max_workers,
-            domain_tree=domain_tree
+            domain_tree=domain_tree if use_tree_label else None
         )
         return qa_list
 
@@ -434,7 +445,7 @@ class DataMax:
 
     def split_data(
             self,
-            parsed_data: Union[str, dict] = None,
+            parsed_data: Union[str, dict, None] = None,
             chunk_size: int = 500,
             chunk_overlap: int = 100,
             use_langchain: bool = False):
@@ -502,6 +513,5 @@ class DataMax:
             raise e
 
 
-
-if __name__ == '__main__':
-    pass
+if __name__ == "__main__":
+   pass
