@@ -15,7 +15,7 @@ class PdfProcessor:
         return cls._instance
 
     def process_pdf(self, pdf_file_name, output_dir="__temp__"):
-        name_without_suff = os.path.basename(pdf_file_name).split(".")[0]
+        name_without_suff = os.path.basename(pdf_file_name).replace(".pdf", "")
         print("Processing PDF: " + name_without_suff)
 
         local_image_dir = os.path.join(output_dir, "images")

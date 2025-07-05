@@ -1,49 +1,73 @@
 import os
+import pathlib
+import sys
 import subprocess
-from typing import Union
+from typing import Union, Optional, Dict
 
-from langchain_community.document_loaders import PyMuPDFLoader
-from loguru import logger
-
+ROOT_DIR: pathlib.Path = pathlib.Path(__file__).parent.parent.parent.resolve()
+sys.path.insert(0, str(ROOT_DIR))
 from datamax.parser.base import BaseLife, MarkdownOutputVo
 from datamax.utils.lifecycle_types import LifeType
+from langchain_community.document_loaders import PyMuPDFLoader
+from loguru import logger
 from datamax.utils.mineru_operator import pdf_processor
+import os
 
 
 class PdfParser(BaseLife):
-
     def __init__(
         self,
         file_path: Union[str, list],
         use_mineru: bool = False,
+        use_got_ocr: bool = False,
+        got_ocr_model_path: str = "./GOT_weights/",
+        gpu_id: int = 0,
+        extract_images: bool = False,
+        image_output_dir: str = "extracted_images",
+        temp_dir: str = "__temp__",
+        **kwargs
     ):
+        """
+        Initialize the PdfParser with enhanced capabilities.
+        
+        Args:
+            file_path: Path to the PDF/PPT file or list of paths
+            use_mineru: Whether to use minerU for processing
+            use_got_ocr: Whether to use GOT-OCR for processing
+            got_ocr_model_path: Path to GOT-OCR model weights
+            gpu_id: GPU ID to use for processing
+            extract_images: Whether to extract images from documents
+            image_output_dir: Directory to save extracted images
+            temp_dir: Directory to store temporary processing files
+            **kwargs: Additional configuration options
+        """
         super().__init__()
-
         self.file_path = file_path
         self.use_mineru = use_mineru
+        self.use_got_ocr = use_got_ocr
+        self.got_ocr_model_path = got_ocr_model_path
+        self.gpu_id = gpu_id
+        self.extract_images = extract_images
+        self.image_output_dir = image_output_dir
+        self.temp_dir = temp_dir
+        
+        # Create temp directory if it doesn't exist
+        os.makedirs(self.temp_dir, exist_ok=True)
+            
 
     def mineru_process(self, input_pdf_filename, output_dir):
+        """Original mineru processing method"""
         proc = None
         try:
-            logger.info(
-                f"mineru is working...\n input_pdf_filename: {input_pdf_filename} | output_dir: ./{output_dir}. plz waiting!"
-            )
-            command = ["magic-pdf", "-p", input_pdf_filename, "-o", output_dir]
-            proc = subprocess.Popen(
-                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
+            logger.info(f"mineru is working...\n input_pdf_filename: {input_pdf_filename} | output_dir: ./{output_dir}. plz waiting!")
+            command = ['magic-pdf', '-p', input_pdf_filename, '-o', output_dir]
+            proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-            # 等待命令执行完成
             stdout, stderr = proc.communicate()
-            # 检查命令是否成功执行
             if proc.returncode != 0:
-                raise Exception(
-                    f"mineru failed with return code {proc.returncode}: {stderr.decode()}"
-                )
+                raise Exception(f"mineru failed with return code {proc.returncode}: {stderr.decode()}")
 
-            logger.info(
-                f"Markdown saved in {output_dir}, input file is {input_pdf_filename}"
-            )
+            logger.info(f"Markdown saved in {output_dir}, input file is {input_pdf_filename}")
 
         except Exception as e:
             logger.error(f"Error: {e}")
@@ -51,17 +75,13 @@ class PdfParser(BaseLife):
                 proc.kill()
                 proc.wait()
                 logger.info("The process was terminated due to an error.")
-            raise  # Re-raise the exception to let the caller handle it
+            raise
 
         finally:
-            # 确保子进程已经结束
-            if proc is not None:
-                if proc.poll() is None:
-                    proc.kill()
-                    proc.wait()
-                    logger.info(
-                        "The process was terminated due to timeout or completion."
-                    )
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+                proc.wait()
+                logger.info("The process was terminated due to timeout or completion.")
 
     @staticmethod
     def read_pdf_file(file_path) -> str:
@@ -74,40 +94,43 @@ class PdfParser(BaseLife):
             return result_text
         except Exception as e:
             raise e
-
+        
     def parse(self, file_path: str) -> MarkdownOutputVo:
-
-        lc_start = self.generate_lifecycle(
-            source_file=file_path,
-            domain="Technology",
-            usage_purpose="Documentation",
-            life_type=LifeType.DATA_PROCESSING,
-        )
-        logger.debug("⚙️ DATA_PROCESSING 生命周期已生成")
         try:
+            lc_start = self.generate_lifecycle(
+                source_file=file_path,
+                domain="Technology",
+                usage_purpose="Documentation",
+                life_type=LifeType.DATA_PROCESSING,
+            )
+            logger.debug("⚙️ DATA_PROCESSING 生命周期已生成")
+
             extension = self.get_file_extension(file_path)
-
-            if self.use_mineru:
-                output_dir = "uploaded_files"
+            
+            # Choose processing method based on configuration
+            if self.use_got_ocr:
+                mk_content = self._process_with_got_ocr(file_path)
+            elif self.use_mineru:
+                output_dir = self.temp_dir
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
                 output_folder_name = os.path.basename(file_path).replace(".pdf", "")
-                # output_mineru = f'{output_dir}/{output_folder_name}/auto/{output_folder_name}.md'
-                # if os.path.exists(output_mineru):
-                #     pass
-                # else:
-                # self.mineru_process(input_pdf_filename=file_path, output_dir=output_dir)
-                # mk_content = open(output_mineru, 'r', encoding='utf-8').read()
-
-                # todo: 是否有必要跟api的默认保存路径保持一致
-                output_mineru = f"{output_dir}/markdown/{output_folder_name}.md"
+                output_mineru = f'{output_dir}/markdown/{output_folder_name}.md'
 
                 if os.path.exists(output_mineru):
-                    mk_content = open(output_mineru, "r", encoding="utf-8").read()
+                    mk_content = open(output_mineru, 'r', encoding='utf-8').read()
                 else:
-                    mk_content = pdf_processor.process_pdf(file_path)
+                    mk_content = pdf_processor.process_pdf(file_path, output_dir=output_dir)
             else:
-                content = self.read_pdf_file(file_path=file_path)
-                mk_content = content
+                # Fall back to basic text extraction
+                pdf_loader = PyMuPDFLoader(file_path)
+                pdf_documents = pdf_loader.load()
+                mk_content = ''.join(page.page_content for page in pdf_documents)
+        except Exception as e:
+            logger.error(f"Error parsing PDF {file_path}: {str(e)}")
+            raise
 
+        try:
             # —— 生命周期：处理完成 —— #
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
@@ -121,7 +144,7 @@ class PdfParser(BaseLife):
             output_vo.add_lifecycle(lc_start)
             output_vo.add_lifecycle(lc_end)
             return output_vo.to_dict()
-
+            
         except Exception as e:
             # —— 生命周期：处理失败 —— #
             lc_fail = self.generate_lifecycle(
@@ -139,3 +162,13 @@ class PdfParser(BaseLife):
                     "lifecycle": [lc_fail.to_dict()],
                 }
             )
+            
+
+
+if __name__ == "__main__":
+    import torch
+    print(torch.cuda.is_available())
+    file_path = "D:/Datamax_hkh/examples/testfiles/图纸/图、文/3.VALVE SPINDLE GRINDER.pdf"
+    parser = PdfParser(file_path, use_mineru=True)
+    result = parser.parse(file_path)
+    print(result)
