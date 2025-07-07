@@ -25,6 +25,7 @@ class PdfParser(BaseLife):
         extract_images: bool = False,
         image_output_dir: str = "extracted_images",
         temp_dir: str = "__temp__",
+        domain: str = "Technology",
         **kwargs
     ):
         """
@@ -39,9 +40,10 @@ class PdfParser(BaseLife):
             extract_images: Whether to extract images from documents
             image_output_dir: Directory to save extracted images
             temp_dir: Directory to store temporary processing files
+            domain: knowledge domain, such as 'Technology' etc.,
             **kwargs: Additional configuration options
         """
-        super().__init__()
+        super().__init__(domain=domain)
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.use_got_ocr = use_got_ocr
@@ -99,7 +101,7 @@ class PdfParser(BaseLife):
         try:
             lc_start = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSING,
             )
@@ -134,7 +136,7 @@ class PdfParser(BaseLife):
             # —— 生命周期：处理完成 —— #
             lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESSED,
             )
@@ -149,7 +151,7 @@ class PdfParser(BaseLife):
             # —— 生命周期：处理失败 —— #
             lc_fail = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
                 life_type=LifeType.DATA_PROCESS_FAILED,
             )
