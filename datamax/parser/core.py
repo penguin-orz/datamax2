@@ -39,6 +39,7 @@ class ParserFactory:
         file_path: str,
         use_mineru: bool = False,
         to_markdown: bool = False,
+        use_ocr: bool = False,
         domain: str = "Technology",
     ):
         """
@@ -72,7 +73,7 @@ class ParserFactory:
         if not parser_class_name:
             return None
 
-        if file_extension in [".jpg", "jpeg", ".png", ".webp"]:
+        if file_extension in [".jpg", ".jpeg", ".png", ".webp"]:
             module_name = f"datamax.parser.image_parser"
         else:
             # Dynamically determine the module name based on the file extension
@@ -98,7 +99,19 @@ class ParserFactory:
                 )
             elif parser_class_name == "XlsxParser":
                 return parser_class(file_path=file_path, domain=domain,)
+            # —— 图片分支 —— #
+            elif parser_class_name == "ImageParser":
+                # use_ocr = True 时，走本地 OCR（use_mllm=False）
+                # use_ocr = False 时，走多模态 LLM（use_mllm=True）
+                return parser_class(
+                    file_path=file_path,
+                    use_mllm=not use_ocr,
+                    domain=domain
+                    # 如果你要支持 Qwen，还可以在这里传 api_key/model_name/system_prompt
+                    # e.g. api_key=self.api_key, model_name=self.model_name, system_prompt=self.system_prompt
+                )
             else:
+                # 其他文本／演示文稿类型
                 return parser_class(file_path=file_path, domain=domain,)
 
         except (ImportError, AttributeError) as e:
@@ -111,6 +124,7 @@ class DataMax(BaseLife):
         file_path: Union[str, list] = "",
         use_mineru: bool = False,
         to_markdown: bool = False,
+        use_ocr: bool = False,
         ttl: int = 3600,
         domain: str = "Technology",
     ):
@@ -130,6 +144,8 @@ class DataMax(BaseLife):
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
+        self.use_ocr      = use_ocr
+        
 
     def set_data(self, file_name, parsed_data):
         """
@@ -592,13 +608,20 @@ class DataMax(BaseLife):
                 use_mineru=self.use_mineru,
                 file_path=file_path,
                 to_markdown=self.to_markdown,
+                use_ocr=self.use_ocr,
                 domain=self.domain,
             )
             if parser:
-                return parser.parse(file_path=file_path)
+                return parser.parse()
         except Exception as e:
             raise e
 
 
 if __name__ == "__main__":
-    pass
+    # 1) 本地 OCR 分支（PNG→PDF→本地 OCR）
+    dm = DataMax(
+        file_path="img_v3_02nl_8c3a7330-b09c-403f-8eb0-be22710030cg.png",
+        use_ocr=True          # 开启图片 OCR 流程
+    )
+    result = dm.get_data()    # 返回 dict，包含 content, lifecycle, metadata
+    print(json.dumps(result, ensure_ascii=False, indent=2))
