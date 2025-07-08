@@ -46,8 +46,8 @@ data = dm.get_data()
 # 数据清洗
 cleaned_data = dm.clean_data(method_list=["abnormal", "private", "filter"])
 
-# 带领域树的AI标注
-qa_data = dm.generate_qa_with_tree(
+# AI标注
+qa_data = dm.get_pre_label(
     api_key="your-api-key",
     base_url="https://api.openai.com/v1",
     model_name="gpt-3.5-turbo"
@@ -205,40 +205,22 @@ for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=
     print(chunk)
 ```
 
-### AI标注（带领域树标签）
+### AI标注
 
 ```python
-# 带领域树的自动问答标注
-
-dm = DataMax(file_path="your_file.md")
-qa_data = dm.generate_qa_with_tree(
-    api_key="sk-xxx",         
-    base_url="https://api.provider.com/v1",  
-    model_name="model-name",   
-    chunk_size=500,             # 文本块大小
-    chunk_overlap=100,          # 块重叠长度
-    question_number=5,          # 每块生成问题数
-    max_workers=5               # 并发线程数
+# 自定义标注任务
+qa_data = dm.get_pre_label(
+    api_key="sk-xxx",
+    base_url="https://api.provider.com/v1",
+    model_name="model-name",
+    chunk_size=500,        # 文本块大小
+    chunk_overlap=100,     # 重叠长度
+    question_number=5,     # 每块生成问题数
+    max_workers=5          # 并发数
 )
-# 生成领域树后，用户可在终端交互式自定义树结构
 # 保存结果
 dm.save_label_data(qa_data)
 ```
-
-#### 领域树交互操作说明
-
-生成树后，终端会输出当前树结构，并自动进入编辑模式。用户可根据提示输入以下命令，对树结构进行灵活调整：
-
-支持的命令：
- 1. 增加节点：xxx；父节点：xxx   （父节点可留空，留空则添加为根节点）
- 2. 增加节点：xxx；父节点：xxx；子节点：xxx
- 3. 删除节点：xxx
- 4. 更新节点：新名称；原先节点：旧名称
- 5. 结束树操作
-
-> 节点名称格式通常为：x.xx xxxx，例如：'1.1 货物运输组织与路径规划' 或 '1 运输系统组织';而键入的指令必须严格参上（语言，格式等）
-
-每次操作后，终端会实时反馈树结构的最新状态，直到用户输入“结束树操作”结束编辑，最终树结构将用于后续AI标注任务。
 
 ## ⚙️ 环境配置
 

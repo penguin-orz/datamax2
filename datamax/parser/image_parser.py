@@ -191,7 +191,7 @@ if __name__ == "__main__":
         file_path="picture.png",
         use_mllm=True,
         api_key="sk-xxxx",
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        base_url="your—base-url",
         model_name="qwen-vl-max-latest",
         )
     print(ip.parse())

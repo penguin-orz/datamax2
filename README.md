@@ -46,11 +46,15 @@ data = dm.get_data()
 # Data cleaning
 cleaned_data = dm.clean_data(method_list=["abnormal", "private", "filter"])
 
-# AI annotation default with tree
-qa_data = dm.generate_qa_with_tree(
-    api_key="your-api-key"
-    base_url="https://api.openai.com/v1",
-    model_name="gpt-3.5-turbo",
+# AI annotation
+qa_data = dm.get_pre_label(
+    api_key="sk-xxx",
+    base_url="https://api.provider.com/v1",
+    model_name="model-name",
+    chunk_size=500,        # 文本块大小
+    chunk_overlap=100,     # 重叠长度
+    question_number=5,     # 每块生成问题数
+    max_workers=5          # 并发数
 )
 dm.save_label_data(qa_data)
 ```
@@ -205,67 +209,20 @@ for chunk in parser.split_data(chunk_size=500, chunk_overlap=100, use_langchain=
     print(chunk)
 ```
 
-### AI Annotation with optional Domain Tree
+### AI Annotation
 
 ```python
-
-#Custom annotation tasks with domain tree
-dm = DataMax(file_path="your_file.md")
-qa_data = dm.generate_qa_with_tree(
-    api_key="sk-xxx",          
-    base_url="https://api.provider.com/v1",         
-    model_name="model-name",          
-    chunk_size=500,                   # Text chunk size
-    chunk_overlap=100,                # Overlap between chunks
-    question_number=5,                # Number of questions per chunk
-    max_workers=5                     # Number of threads for parallel processing
-    use_tree_label=True               # Whether use tree label or not(choose yes here)
-)
-
-#After generating the domain tree, user is allowed to customize their tree in a terminal interaction
-
-# Save the QA label data to file
-dm.save_label_data(qa_data, save_file_name="qa_label_data")
-
-#Alternatively, you can also choose not to use the domain tree to quickly generate QA pairs. 
-dm = DataMax(file_path="your_file.md")
-qa_data = dm.generate_qa_with_tree(
-    api_key="sk-xxx",          
-    base_url="https://api.provider.com/v1",         
-    model_name="model-name",          
-    chunk_size=500,                   # Text chunk size
-    chunk_overlap=100,                # Overlap between chunks
-    question_number=5,                # Number of questions per chunk
-    max_workers=5                     # Number of threads for parallel processing
-    use_tree_label=False               # Whether use tree label or not(choose not here)
+# Custom annotation tasks
+qa_data = dm.get_pre_label(
+    api_key="sk-xxx",
+    base_url="https://api.provider.com/v1",
+    model_name="model-name",
+    chunk_size=500,        # Text chunk size
+    chunk_overlap=100,     # Overlap length
+    question_number=5,     # Questions per chunk
+    max_workers=5          # Concurrency
 )
 ```
-
-## 🌳 Tree Editing Workflow (AI Annotation)
-
-After using the `generate_qa_with_tree` method to generate a domain tree for AI annotation, the terminal will display the current tree structure and enter the tree editing mode by default. Users can follow the terminal prompts and refer to the command formats below to flexibly adjust the tree structure directly in the terminal.
-
-### Workflow
-
-1. **After the tree is generated, the terminal will display the current tree structure and enter the editing mode.**
-
-2. **In editing mode, users can input the following commands as prompted to operate on the tree structure:**
-
-   Supported Commands:
-    1. 增加节点：xxx；父节点：xxx   （父节点可留空，留空则添加为根节点）
-    2. 增加节点：xxx；父节点：xxx；子节点：xxx
-    3. 删除节点：xxx
-    4. 更新节点：新名称；原先节点：旧名称
-    5. 结束树操作
-
-    Attention! The format of the node is usually as: x.xx xxxx, such as: '1.1 Cargo Transportation Organization and Route Planning' or '1 Transportation System Organization'.And commands show above need to be exactly the same(language,format...)
-
-3. **After each operation, the terminal will immediately display the updated tree structure and continue to wait for user input, until the user enters `Finish editing` to end the tree editing process.**
-
-4. **The final tree structure will be used for subsequent AI annotation tasks.**
-
-
----
 
 ## ⚙️ Environment Setup
 
