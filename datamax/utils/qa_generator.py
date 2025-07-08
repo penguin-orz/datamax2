@@ -427,9 +427,9 @@ def llm_generator(
         return []
 
     except Exception as e:
-        print(f"LLM提取关键词失败: {e}")
+        logger.error(f"LLM提取关键词失败: {e}")
         if hasattr(e, "__traceback__") and e.__traceback__ is not None:
-            print(f"错误行号: {e.__traceback__.tb_lineno}")
+            logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
         return []
 
 
@@ -477,42 +477,67 @@ def process_domain_tree(
     text: str,
     temperature: float = 0.7,
     top_p: float = 0.9,
+    max_retries: int = 3,
 ) -> DomainTree:
     prompt = get_system_prompt_for_domain_tree(text)
-
     logger.info(f"领域树生成开始...")
-
-    message = [
-        {"role": "system", "content": prompt},
-        {"role": "user", "content": "请严格按照要求生成内容"},
-    ]
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    data = {
-        "model": model,
-        "messages": message,
-        "temperature": temperature,
-        "top_p": top_p,
-    }
-    response = requests.post(base_url, headers=headers, json=data)
-    response.raise_for_status()
-    result = response.json()
-
-    # Parse LLM response
-    if "choices" in result and len(result["choices"]) > 0:
-        output = result["choices"][0]["message"]["content"]
-        # save result
-        if output:
-            json_output = extract_json_from_llm_output(output)
-            if json_output is not None:
-                domain_tree = DomainTree()
-                domain_tree.from_json(json_output)
-                logger.info(f"领域树生成成功, 共生成 {len(json_output)} 个大标签")
-                return domain_tree
-    return DomainTree([])
+    
+    for attempt in range(max_retries):
+        try:
+            message = [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": "请严格按照要求生成内容"},
+            ]
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            data = {
+                "model": model,
+                "messages": message,
+                "temperature": temperature,
+                "top_p": top_p,
+            }
+            response = requests.post(base_url, headers=headers, json=data)
+            response.raise_for_status()
+            result = response.json()
+            
+            # Parse LLM response
+            if "choices" in result and len(result["choices"]) > 0:
+                output = result["choices"][0]["message"]["content"]
+                if output:
+                    json_output = extract_json_from_llm_output(output)
+                    if json_output is not None:
+                        domain_tree = DomainTree()
+                        domain_tree.from_json(json_output)
+                        logger.info(f"领域树生成成功, 共生成 {len(json_output)} 个大标签")
+                        return domain_tree
+                    else:
+                        logger.warning(f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 无法解析JSON输出")
+                else:
+                    logger.warning(f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 空输出")
+            else:
+                logger.warning(f"领域树生成失败 (尝试 {attempt + 1}/{max_retries}): 无效响应格式")
+                
+        except Exception as e:
+            logger.error(f"领域树生成异常 (尝试 {attempt + 1}/{max_retries}): {e}")
+            if hasattr(e, "__traceback__") and e.__traceback__ is not None:
+                logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
+            
+            if attempt == max_retries - 1:
+                error_msg = "树生成失败！请检查网络或更换大模型！后续将依据纯文本生成"
+                print(f"❌ {error_msg}")
+                logger.error(f"领域树生成失败，已重试 {max_retries} 次: {error_msg}")
+                return None
+            else:
+                logger.info(f"等待重试... ({attempt + 2}/{max_retries})")
+                import time
+                time.sleep(2)  # 等待2秒后重试
+    
+    error_msg = "树生成失败！请检查网络或更换大模型！后续将依据纯文本生成"
+    print(f"❌ {error_msg}")
+    logger.error(f"领域树生成失败，已重试 {max_retries} 次: {error_msg}")
+    return None
 
 
 def process_questions(
@@ -523,35 +548,46 @@ def process_questions(
     question_number: int,
     max_workers: int = 5,
     message: list = None,
+    max_retries: int = 3,
 ) -> list:
-    """Generate questions using multi-threading"""
+    """Generate questions using multi-threading with retry mechanism"""
     total_questions = []
+    if message is None:
+        message = []
+    
+    def _generate_questions_with_retry(page):
+        """Inner function for question generation with retry"""
+        for attempt in range(max_retries):
+            try:
+                prompt = get_system_prompt_for_question(page, question_number)
+                questions = llm_generator(
+                    api_key=api_key,
+                    model=model,
+                    base_url=base_url,
+                    message=message,
+                    prompt=prompt,
+                    type="question",
+                )
+                if questions:
+                    return [{"question": question, "page": page} for question in questions]
+                else:
+                    logger.warning(f"问题生成失败 (尝试 {attempt + 1}/{max_retries}): 空结果")
+            except Exception as e:
+                logger.error(f"问题生成异常 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if hasattr(e, "__traceback__") and e.__traceback__ is not None:
+                    logger.error(f"错误行号: {e.__traceback__.tb_lineno}")
+            
+            if attempt < max_retries - 1:
+                logger.info(f"等待重试... ({attempt + 2}/{max_retries})")
+                import time
+                time.sleep(2)  # 等待2秒后重试
+        
+        logger.error(f"问题生成失败，已重试 {max_retries} 次")
+        return []
 
-
-    def _generate_questions(page, message):
-        """Inner function for question generation"""
-        prompt = get_system_prompt_for_question(page, question_number)
-        if not message:
-            message = [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": "请严格按照要求生成内容"},
-            ]
-
-        questions = llm_generator(
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            message=message,
-            prompt=prompt,
-            type="question",
-        )
-        return [{"question": question, "page": page} for question in questions] if questions else []
-
-    logger.info(f"开始生成问题 (线程数: {max_workers})...")
+    logger.info(f"开始生成问题 (线程数: {max_workers}, 重试次数: {max_retries})...")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_generate_questions, page, message) for page in page_content]
-
-
+        futures = [executor.submit(_generate_questions_with_retry, page) for page in page_content]
         with tqdm(as_completed(futures), total=len(futures), desc="生成问题") as pbar:
             for future in pbar:
                 result = future.result()
@@ -559,7 +595,6 @@ def process_questions(
                     with lock:
                         total_questions.extend(result)
                     pbar.set_postfix({"已生成问题": len(total_questions)})
-
     return total_questions
 
 
@@ -787,7 +822,11 @@ def full_qa_labeling_process(
             temperature=0.7,
             top_p=0.9,
         )
-        if interactive_tree and domain_tree and domain_tree.tree:
+        if domain_tree is None:
+            # 树生成失败，采用纯文本生成策略
+            logger.info("领域树生成失败，采用纯文本生成策略")
+            use_tree_label = False
+        elif interactive_tree and domain_tree and domain_tree.tree:
             print("\n" + "="*60)
             print("🌳 生成的领域树结构:")
             print("="*60)
