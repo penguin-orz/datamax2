@@ -15,6 +15,7 @@ A powerful multi-format file parsing, data cleaning, and AI annotation toolkit.
 - 🔄 **Multi-format Support**: PDF, DOCX/DOC, PPT/PPTX, XLS/XLSX, HTML, EPUB, TXT, images, and more
 - 🧹 **Intelligent Cleaning**: Three-layer cleaning process with anomaly detection, privacy protection, and text filtering
 - 🤖 **AI Annotation**: LLM-based automatic data annotation and pre-labeling
+- 🌳 **Domain Tree Generation & Editing**: Generate and interactively edit domain trees for advanced annotation
 - ⚡ **Batch Processing**: Efficient multi-file parallel processing
 - 🎯 **Easy Integration**: Clean API design, ready to use out of the box
 
@@ -223,6 +224,49 @@ qa_data = dm.get_pre_label(
     max_workers=5          # Concurrency
 )
 ```
+
+### Domain Tree Example
+
+```python
+# Generate domain tree for advanced annotation
+dm = DataMax(file_path="document.pdf")
+tree_data = dm.generate_domain_tree(
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1",
+    model_name="gpt-3.5-turbo"
+)
+
+
+```
+
+### Enhanced QA Generation
+
+The QA generator now supports:
+- Retry mechanism for LLM calls
+- Fallback to text-only mode if domain tree generation fails
+- Use of domain tree labels for more accurate annotation
+- Interactive domain tree editing for fine-tuning
+
+```python
+# Enhanced QA generation with domain tree integration and interactive editing
+qa_data = dm.get_pre_label(
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1",
+    model_name="gpt-3.5-turbo",
+    use_tree_label=True,  # new parameter for domain tree integration
+    interactive_tree=True,  # enable interactive tree editing during QA generation
+    chunk_size=500,
+    chunk_overlap=100,
+    question_number=5,
+    max_workers=5
+)
+```
+
+## Changelog
+
+- Added domain tree module (`datamax/utils/domain_tree.py`)
+- Enhanced core parser (`datamax/parser/core.py`)
+- Improved QA generator with retry and fallback (`datamax/utils/qa_generator.py`)
 
 ## ⚙️ Environment Setup
 
