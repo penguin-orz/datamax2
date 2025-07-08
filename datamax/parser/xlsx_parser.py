@@ -1,4 +1,3 @@
-import logging
 import multiprocessing
 import os
 import time
@@ -6,23 +5,21 @@ import warnings
 from multiprocessing import Queue
 
 import pandas as pd
+from loguru import logger
 
 from datamax.parser.base import BaseLife, MarkdownOutputVo
+from datamax.utils.lifecycle_types import LifeType
 
 warnings.filterwarnings("ignore")
-
-# 配置日志
-logger = logging.getLogger(__name__)
 
 
 class XlsxParser(BaseLife):
     """XLSX解析器 - 使用pandas读取并转换为markdown，支持多进程处理"""
 
-    def __init__(self, file_path, timeout):
-        super().__init__()
+    def __init__(self, file_path, domain: str = "Technology"):
+        super().__init__(domain=domain)
         self.file_path = file_path
-        self.timeout = timeout
-        logger.info(f"🚀 XlsxParser初始化完成 - 文件路径: {file_path}, 超时: {timeout}s")
+        logger.info(f"🚀 XlsxParser初始化完成 - 文件路径: {file_path}")
 
     def _parse_with_pandas(self, file_path: str) -> str:
         """使用pandas读取Excel并转换为markdown"""
@@ -88,7 +85,9 @@ class XlsxParser(BaseLife):
                     markdown_content = "*工作表为空*"
                     logger.warning("⚠️ 工作表为空")
 
-            logger.info(f"🎊 pandas转换完成，markdown内容长度: {len(markdown_content)} 字符")
+            logger.info(
+                f"🎊 pandas转换完成，markdown内容长度: {len(markdown_content)} 字符"
+            )
             logger.debug(f"👀 前200字符预览: {markdown_content[:200]}...")
 
             return markdown_content
@@ -110,6 +109,15 @@ class XlsxParser(BaseLife):
         """解析Excel文件的核心方法"""
         logger.info(f"🎬 开始解析Excel文件: {file_path}")
 
+        # —— 生命周期：开始处理 —— #
+        lc_start = self.generate_lifecycle(
+            source_file=file_path,
+            domain=self.domain,
+            usage_purpose="Documentation",
+            life_type=LifeType.DATA_PROCESSING,
+        )
+        logger.debug("⚙️ DATA_PROCESSING 生命周期已生成")
+
         try:
             # 使用pandas解析Excel
             logger.info("🐼 使用pandas模式解析Excel")
@@ -122,19 +130,20 @@ class XlsxParser(BaseLife):
 
             logger.info(f"🎊 文件内容解析完成，最终内容长度: {len(mk_content)} 字符")
 
-            # 生成lifecycle信息
-            lifecycle = self.generate_lifecycle(
+            # —— 生命周期：处理完成 —— #
+            lc_end = self.generate_lifecycle(
                 source_file=file_path,
-                domain="Technology",
+                domain=self.domain,
                 usage_purpose="Documentation",
-                life_type="LLM_ORIGIN",
+                life_type=LifeType.DATA_PROCESSED,
             )
-            logger.debug("⚙️ 生成lifecycle信息完成")
+            logger.debug("⚙️ DATA_PROCESSED 生命周期已生成")
 
-            # 创建输出对象
-            title = self.get_file_extension(file_path)
-            output_vo = MarkdownOutputVo(title, mk_content)
-            output_vo.add_lifecycle(lifecycle)
+            # 创建输出对象并添加两个生命周期
+            extension = self.get_file_extension(file_path)
+            output_vo = MarkdownOutputVo(extension, mk_content)
+            output_vo.add_lifecycle(lc_start)
+            output_vo.add_lifecycle(lc_end)
 
             result = output_vo.to_dict()
             result_queue.put(result)
@@ -145,15 +154,46 @@ class XlsxParser(BaseLife):
             return result
 
         except Exception as e:
+            # —— 生命周期：处理失败 —— #
+            try:
+                lc_fail = self.generate_lifecycle(
+                    source_file=file_path,
+                    domain=self.domain,
+                    usage_purpose="Documentation",
+                    life_type=LifeType.DATA_PROCESS_FAILED,
+                )
+                logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
+                # 如果需要，也可以把它加到 error_result 里：
+                # error_result = {"error": str(e), "file_path": file_path, "lifecycle":[lc_fail.to_dict()]}
+            except Exception:
+                pass
+
+            # —— 生命周期：处理失败 —— #
+            try:
+                lc_fail = self.generate_lifecycle(
+                    source_file=file_path,
+                    domain=self.domain,
+                    usage_purpose="Documentation",
+                    life_type=LifeType.DATA_PROCESS_FAILED,
+                )
+                logger.debug("⚙️ DATA_PROCESS_FAILED 生命周期已生成")
+            except Exception:
+                pass
+
             logger.error(f"💀 解析Excel文件失败: {file_path}, 错误: {str(e)}")
             # 将错误也放入队列
-            error_result = {"error": str(e), "file_path": file_path}
+            error_result = {
+                "error": str(e),
+                "file_path": file_path,
+                # 额外把失败的 lifecycle 也一起返回，测试中可选校验
+                "lifecycle": [lc_fail.to_dict()] if "lc_fail" in locals() else [],
+            }
             result_queue.put(error_result)
             raise
 
     def parse(self, file_path: str) -> dict:
         """解析Excel文件 - 支持多进程和超时控制"""
-        logger.info(f"🚀 启动Excel解析进程 - 文件: {file_path}, 超时: {self.timeout}s")
+        logger.info(f"🚀 启动Excel解析进程 - 文件: {file_path}")
 
         try:
             # 验证文件存在
@@ -171,42 +211,6 @@ class XlsxParser(BaseLife):
             )
             process.start()
             logger.debug(f"⚡ 启动子进程，PID: {process.pid}")
-
-            start_time = time.time()
-
-            # 等待解析完成或超时
-            while time.time() - start_time < self.timeout:
-                elapsed_time = int(time.time() - start_time)
-                logger.debug(f"⏱️ 等待解析完成... {elapsed_time}s")
-
-                if not process.is_alive():
-                    logger.debug("✅ 子进程已完成")
-                    break
-
-                if not result_queue.empty():
-                    result = result_queue.get()
-                    process.join()  # 等待进程正常结束
-
-                    # 检查是否是错误结果
-                    if "error" in result:
-                        logger.error(f"💥 子进程返回错误: {result['error']}")
-                        raise Exception(result["error"])
-
-                    logger.info(f"🎉 Excel解析成功完成，耗时: {elapsed_time}s")
-                    return result
-
-                time.sleep(1)
-            else:
-                # 超时处理
-                logger.error(f"⏰ 解析超时 ({self.timeout}s)，终止进程")
-                process.terminate()
-                process.join(timeout=5)  # 给进程5秒时间优雅退出
-
-                if process.is_alive():
-                    logger.error("💀 强制杀死进程")
-                    process.kill()
-
-                raise TimeoutError(f"Excel解析超时: {file_path}")
 
         except Exception as e:
             logger.error(

@@ -128,13 +128,16 @@ test.py
 # venv
 venv/
 venv*/
-examples/parser_examples.py
+examples/*
 # scripts
-scripts/*
-scripts
-# test
-tests/*
-tests
 security_report.json
 README_CI_CD.md
 DEPLOYMENT_GUIDE.md
+*.doc
+*.docx
+*.ppt
+*.pptx
+*.pdf
+*.txt
+*.csv
+

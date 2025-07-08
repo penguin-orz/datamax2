@@ -23,6 +23,15 @@ on:
     tags:
       - 'v*'
 
+# 添加权限声明
+permissions:
+  contents: write    # 允许创建和修改仓库内容
+  packages: write    # 允许发布包
+  pull-requests: write    # 允许创建和修改PR
+  issues: write      # 允许创建和修改issues
+  actions: read      # 允许读取actions
+  checks: write      # 允许写入检查结果
+
 env:
   PYTHON_VERSION: '3.10'
 
@@ -33,6 +42,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       should_publish: ${{ steps.check.outputs.should_publish }}
+      job_status: ${{ job.status }}
 
     steps:
     - name: 检出代码
@@ -49,7 +59,12 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install build twine setuptools wheel
-        pip install -r requirements.txt
+        # 检查requirements.txt是否存在，如果存在则安装
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
+        else
+          echo "requirements.txt 不存在，跳过依赖安装"
+        fi
 
     - name: 版本管理
       id: version
@@ -128,37 +143,51 @@ jobs:
     - name: 检查是否应该发布
       id: check
       run: |
-        # 检查PyPI上是否已存在该版本
+        # 总是允许发布 - 让PyPI自己处理重复版本的错误
         VERSION="${{ steps.version.outputs.version }}"
-        if pip index versions datamax | grep -q "$VERSION"; then
-          echo "版本 $VERSION 已存在于PyPI"
-          echo "should_publish=false" >> $GITHUB_OUTPUT
-        else
-          echo "版本 $VERSION 不存在于PyPI，可以发布"
-          echo "should_publish=true" >> $GITHUB_OUTPUT
-        fi
+        echo "准备发布版本: $VERSION"
+        echo "should_publish=true" >> $GITHUB_OUTPUT
+        echo "版本检查完成，允许发布"
 
     - name: 上传构建产物
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: dist
         path: dist/
 
+  debug-info:
+    name: 调试信息
+    needs: validate-and-test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - name: 输出调试信息
+      run: |
+        echo "=== 调试信息 ==="
+        echo "validate-and-test.result: ${{ needs.validate-and-test.result }}"
+        echo "validate-and-test.outputs.should_publish: ${{ needs.validate-and-test.outputs.should_publish }}"
+        echo "validate-and-test.outputs.version: ${{ needs.validate-and-test.outputs.version }}"
+        echo "github.event_name: ${{ github.event_name }}"
+        echo "=== 条件判断结果 ==="
+        echo "should_publish == 'true': ${{ needs.validate-and-test.outputs.should_publish == 'true' }}"
+        echo "result == 'success': ${{ needs.validate-and-test.result == 'success' }}"
+        echo "综合条件: ${{ needs.validate-and-test.outputs.should_publish == 'true' && needs.validate-and-test.result == 'success' }}"
+
   publish-pypi:
     name: 发布到PyPI
     needs: validate-and-test
-    if: needs.validate-and-test.outputs.should_publish == 'true'
+    if: needs.validate-and-test.outputs.should_publish == 'true' && needs.validate-and-test.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/datamax
+      url: https://pypi.org/p/pydatamax
 
     steps:
     - name: 检出代码
       uses: actions/checkout@v4
 
     - name: 下载构建产物
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: dist
         path: dist/
@@ -181,7 +210,7 @@ jobs:
   create-release:
     name: 创建GitHub Release
     needs: [validate-and-test, publish-pypi]
-    if: needs.validate-and-test.outputs.should_publish == 'true'
+    if: needs.validate-and-test.outputs.should_publish == 'true' && needs.validate-and-test.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
@@ -205,50 +234,185 @@ jobs:
         git tag -a "v${{ needs.validate-and-test.outputs.version }}" -m "Release v${{ needs.validate-and-test.outputs.version }}"
         git push origin "v${{ needs.validate-and-test.outputs.version }}"
 
-    - name: 生成更新日志
-      id: changelog
+    - name: 收集变更信息
+      id: collect_changes
       run: |
         # 获取上一个标签
         PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
+        CURRENT_VERSION="v${{ needs.validate-and-test.outputs.version }}"
+        
+        echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+        echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        
         if [ -n "$PREVIOUS_TAG" ]; then
-          echo "# 更新日志" > CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "## v${{ needs.validate-and-test.outputs.version }}" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-
-          # 获取提交历史
-          echo "### 更改内容" >> CHANGELOG.md
-          git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-
-          # 获取贡献者
-          echo "### 贡献者" >> CHANGELOG.md
-          git log --pretty=format:"- %an" $PREVIOUS_TAG..HEAD | sort -u >> CHANGELOG.md
+          # 收集提交信息
+          echo "=== COMMITS ===" > changes_raw.txt
+          git log --pretty=format:"COMMIT: %s%nAUTHOR: %an <%ae>%nDATE: %ad%nHASH: %h%nBODY: %b%n---" --date=short $PREVIOUS_TAG..HEAD >> changes_raw.txt
+          
+          # 收集文件变更
+          echo "" >> changes_raw.txt
+          echo "=== FILE CHANGES ===" >> changes_raw.txt
+          git diff --name-status $PREVIOUS_TAG..HEAD >> changes_raw.txt
+          
+          # 收集详细的文件变更（限制大小）
+          echo "" >> changes_raw.txt
+          echo "=== DETAILED CHANGES ===" >> changes_raw.txt
+          git diff --stat $PREVIOUS_TAG..HEAD >> changes_raw.txt
+          
+          # 获取仓库信息
+          echo "" >> changes_raw.txt
+          echo "=== REPOSITORY INFO ===" >> changes_raw.txt
+          echo "Repository: ${{ github.repository }}" >> changes_raw.txt
+          echo "Previous Tag: $PREVIOUS_TAG" >> changes_raw.txt
+          echo "Current Version: $CURRENT_VERSION" >> changes_raw.txt
+          echo "Project: DataMax - Python数据处理工具包" >> changes_raw.txt
         else
-          echo "# DataMax v${{ needs.validate-and-test.outputs.version }}" > CHANGELOG.md
+          echo "=== FIRST RELEASE ===" > changes_raw.txt
+          echo "This is the first release of DataMax" >> changes_raw.txt
+        fi
+
+    - name: AI智能总结变更
+      id: ai_summary
+      run: |
+        if [ ! -f "changes_raw.txt" ]; then
+          echo "No changes file found, skipping AI summary"
+          echo "ai_summary_available=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # 安装依赖
+        pip install requests
+        
+        # 运行AI总结脚本
+        python .github/scripts/generate_release_notes.py
+        
+        if [ -f "ai_summary.txt" ]; then
+          echo "ai_summary_available=true" >> $GITHUB_OUTPUT
+        else
+          echo "ai_summary_available=false" >> $GITHUB_OUTPUT
+        fi
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    - name: 生成最终的Release Notes
+      id: final_changelog
+      run: |
+        PREVIOUS_TAG="${{ steps.collect_changes.outputs.previous_tag }}"
+        CURRENT_VERSION="${{ steps.collect_changes.outputs.current_version }}"
+        
+        # 创建Release Notes头部
+        cat > CHANGELOG.md << EOF
+        ## 🚀 DataMax v${{ needs.validate-and-test.outputs.version }}
+        
+        > **发布时间**: $(date '+%Y-%m-%d %H:%M:%S')  
+        > **PyPI包**: [pydatamax ${{ needs.validate-and-test.outputs.version }}](https://pypi.org/project/pydatamax/${{ needs.validate-and-test.outputs.version }}/)
+        
+        ### 📦 安装方式
+        
+        \`\`\`bash
+        pip install pydatamax==${{ needs.validate-and-test.outputs.version }}
+        \`\`\`
+        
+        EOF
+        
+        # 添加AI总结内容
+        if [ "${{ steps.ai_summary.outputs.ai_summary_available }}" = "true" ] && [ -f "ai_summary.txt" ]; then
           echo "" >> CHANGELOG.md
-          echo "首次发布版本" >> CHANGELOG.md
+          cat ai_summary.txt >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+        else
+          # Fallback到原始方法
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "### 📝 更新内容" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "自 $PREVIOUS_TAG 以来的更改:" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            
+            # 分类提交信息
+            git log --pretty=format:"%s|%h" $PREVIOUS_TAG..HEAD | while IFS='|' read -r subject hash; do
+              if echo "$subject" | grep -qi "^feat\|^add\|^新增"; then
+                echo "- ✨ $subject \`$hash\`" >> CHANGELOG.md
+              elif echo "$subject" | grep -qi "^fix\|^修复\|^bug"; then
+                echo "- 🐛 $subject \`$hash\`" >> CHANGELOG.md
+              elif echo "$subject" | grep -qi "^docs\|^文档"; then
+                echo "- 📚 $subject \`$hash\`" >> CHANGELOG.md
+              else
+                echo "- 📝 $subject \`$hash\`" >> CHANGELOG.md
+              fi
+            done
+            echo "" >> CHANGELOG.md
+          else
+            echo "### 🎉 首次发布" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "DataMax 是一个强大的Python数据处理工具包，支持多种文件格式的解析和处理。" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+        fi
+        
+        # 添加贡献者信息
+        if [ -n "$PREVIOUS_TAG" ]; then
+          echo "### 👥 贡献者" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          git log --pretty=format:"%an|%ae" $PREVIOUS_TAG..HEAD | sort -u | while IFS='|' read -r name email; do
+            if [[ "$email" == *"@users.noreply.github.com" ]]; then
+              username=$(echo "$email" | sed 's/@users.noreply.github.com//')
+              echo "- [@$username](https://github.com/$username)" >> CHANGELOG.md
+            else
+              echo "- $name" >> CHANGELOG.md
+            fi
+          done
+          echo "" >> CHANGELOG.md
+        fi
+        
+        # 添加统计信息和链接
+        cat >> CHANGELOG.md << EOF
+        ### 📊 版本统计
+        
+        EOF
+        
+        if [ -n "$PREVIOUS_TAG" ]; then
+          COMMIT_COUNT=$(git rev-list --count $PREVIOUS_TAG..HEAD)
+          FILES_CHANGED=$(git diff --name-only $PREVIOUS_TAG..HEAD | wc -l)
+          echo "- 📈 新增提交: $COMMIT_COUNT 个" >> CHANGELOG.md
+          echo "- 📁 文件变更: $FILES_CHANGED 个" >> CHANGELOG.md
+        fi
+        
+        cat >> CHANGELOG.md << EOF
+        
+        ### 🔗 相关链接
+        
+        - 📖 [项目文档](https://github.com/${{ github.repository }})
+        - 🐛 [问题反馈](https://github.com/${{ github.repository }}/issues)
+        - 💬 [讨论区](https://github.com/${{ github.repository }}/discussions)
+        - 📦 [PyPI包](https://pypi.org/project/pydatamax/)
+        
+        ---
+        EOF
+        
+        # 添加完整更新日志链接
+        if [ -n "$PREVIOUS_TAG" ]; then
+          echo "**完整更新日志**: [${PREVIOUS_TAG}...v${{ needs.validate-and-test.outputs.version }}](https://github.com/${{ github.repository }}/compare/${PREVIOUS_TAG}...v${{ needs.validate-and-test.outputs.version }})" >> CHANGELOG.md
         fi
 
     - name: 下载构建产物
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: dist
         path: dist/
 
     - name: 创建GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ needs.validate-and-test.outputs.version }}
-        name: DataMax v${{ needs.validate-and-test.outputs.version }}
+        name: 🚀 DataMax v${{ needs.validate-and-test.outputs.version }}
         body_path: CHANGELOG.md
         files: |
           dist/*
         draft: false
         prerelease: ${{ contains(needs.validate-and-test.outputs.version, 'rc') }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        generate_release_notes: true
 
   notify:
     name: 发布通知
@@ -261,7 +425,7 @@ jobs:
       if: needs.publish-pypi.result == 'success' && needs.create-release.result == 'success'
       run: |
         echo "🎉 DataMax v${{ needs.validate-and-test.outputs.version }} 发布成功!"
-        echo "📦 PyPI: https://pypi.org/project/datamax/${{ needs.validate-and-test.outputs.version }}/"
+        echo "📦 PyPI: https://pypi.org/project/pydatamax/${{ needs.validate-and-test.outputs.version }}/"
         echo "🏷️ GitHub: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ needs.validate-and-test.outputs.version }}"
 
     - name: 发布失败通知

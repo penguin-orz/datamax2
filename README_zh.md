@@ -31,12 +31,16 @@ pip install pydatamax
 ```python
 from datamax import DataMax
 
-# 解析单个文件
+# 解析单个文件，默认 domain="Technology"
 dm = DataMax(file_path="document.pdf")
 data = dm.get_data()
 
 # 批量处理
 dm = DataMax(file_path=["file1.docx", "file2.pdf"])
+data = dm.get_data()
+
+# 指定领域：domain 参数支持预置领域（Technology, Finance, Health, Education, Legal, Marketing, Sales, Entertainment, Science），也可自定义
+dm = DataMax(file_path="report.pdf", domain="Finance")
 data = dm.get_data()
 
 # 数据清洗
@@ -53,6 +57,10 @@ qa_data = dm.generate_qa_with_tree(
 ## 📖 详细文档
 
 ### 文件解析
+
+#### 可选参数：domain
+所有解析器均支持一个可选的 domain: str 参数，用于记录业务领域，默认值为 "Technology"。
+预置领域列表：["Technology","Finance","Health","Education","Legal","Marketing","Sales","Entertainment","Science"]，也可以传入任意自定义字符串。
 
 #### 支持的格式
 
@@ -214,7 +222,7 @@ qa_data = dm.generate_qa_with_tree(
 )
 # 生成领域树后，用户可在终端交互式自定义树结构
 # 保存结果
-dm.save_label_data(res)
+dm.save_label_data(qa_data)
 ```
 
 #### 领域树交互操作说明
@@ -240,7 +248,7 @@ dm.save_label_data(res)
 
 **Ubuntu/Debian:**
 ```bash
-sudo apt-get install libreoffice
+apt update && apt install -y libreoffice libreoffice-dev python3-uno
 ```
 
 **Windows:**
@@ -250,12 +258,11 @@ sudo apt-get install libreoffice
 #### MinerU（高级PDF解析）
 
 ```bash
-# 创建虚拟环境
-conda create -n mineru python=3.10
-conda activate mineru
-
-# 安装MinerU
+# 1.安装MinerU
 pip install -U "magic-pdf[full]" --extra-index-url https://wheels.myhloli.com
+
+# 2.安装模型
+python datamax/scripts/download_models.py
 ```
 
 详细配置请参考 [MinerU文档](https://github.com/opendatalab/MinerU)
@@ -269,6 +276,21 @@ git clone https://github.com/Hi-Dolphin/datamax.git
 cd datamax
 pip install -r requirements.txt
 python setup.py install
+```
+
+### 本地调试
+
+```python
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+
+from datamax import DataMax
+
+# 示例代码
+dm = DataMax(file_path="test.pdf")
+data = dm.get_data()
+print(data)
 ```
 
 
@@ -290,7 +312,7 @@ python setup.py install
 - 📧 Email: cy.kron@foxmail.com
 - 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
 - 📚 文档: [项目主页](https://github.com/Hi-Dolphin/datamax)
-
+- 💬 微信交流群：<br><img src='wechat.png' width=300>
 ---
 
 ⭐ 如果这个项目对您有帮助，请给我们一个星标！

@@ -1,5 +1,27 @@
-from datamax.utils.data_cleaner import AbnormalCleaner, TextFilter, PrivacyDesensitization
+from datamax.utils.data_cleaner import (
+    AbnormalCleaner,
+    PrivacyDesensitization,
+    TextFilter,
+)
 from datamax.utils.env_setup import setup_environment
+
+# Conditionally import the UNO processor
+try:
+    from datamax.utils.uno_handler import (
+        HAS_UNO,
+        UnoManager,
+        cleanup_uno_manager,
+        convert_with_uno,
+        get_uno_manager,
+        uno_manager_context,
+    )
+except ImportError:
+    HAS_UNO = False
+    UnoManager = None
+    get_uno_manager = None
+    convert_with_uno = None
+    cleanup_uno_manager = None
+    uno_manager_context = None
 
 
 def clean_original_text(text):

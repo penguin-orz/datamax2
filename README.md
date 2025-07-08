@@ -31,12 +31,16 @@ pip install pydatamax
 ```python
 from datamax import DataMax
 
-# Parse a single file
+# Parse a single file, default domain="Technology"
 dm = DataMax(file_path="document.pdf")
 data = dm.get_data()
 
 # Batch processing
 dm = DataMax(file_path=["file1.docx", "file2.pdf"])
+data = dm.get_data()
+
+# Specify domain（preset values：Technology, Finance, Health, Education, Legal, Marketing, Sales, Entertainment, Science；custom options also available）
+dm = DataMax(file_path="report.pdf", domain="Finance")
 data = dm.get_data()
 
 # Data cleaning
@@ -48,11 +52,16 @@ qa_data = dm.generate_qa_with_tree(
     base_url="https://api.openai.com/v1",
     model_name="gpt-3.5-turbo",
 )
+dm.save_label_data(qa_data)
 ```
 
 ## 📖 Detailed Documentation
 
 ### File Parsing
+
+#### 可选参数：domain
+All parsers support an optional domain: str parameter for specifying the business domain, with "Technology" set as the default value.
+Predefined domain options include：["Technology","Finance","Health","Education","Legal","Marketing","Sales","Entertainment","Science"]，Custom strings can also be passed as needed.
 
 #### Supported Formats
 
@@ -276,12 +285,11 @@ sudo apt-get install libreoffice
 #### MinerU (Advanced PDF parsing)
 
 ```bash
-# Create virtual environment
-conda create -n mineru python=3.10
-conda activate mineru
-
-# Install MinerU
+# 1.Install MinerU in virtual environment
 pip install -U "magic-pdf[full]" --extra-index-url https://wheels.myhloli.com
+
+# 2.Install the models
+python datamax/scripts/download_models.py
 ```
 
 For detailed configuration, please refer to [MinerU Documentation](https://github.com/opendatalab/MinerU)
@@ -296,6 +304,58 @@ cd datamax
 pip install -r requirements.txt
 python setup.py install
 ```
+
+### Developer Mode
+
+For developers who want to contribute to the project or make modifications, we recommend using developer mode for a better development experience.
+
+#### Setup Developer Mode
+
+```bash
+# Clone the repository
+git clone https://github.com/Hi-Dolphin/datamax.git
+cd datamax
+
+# Create virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install in developer mode
+pip install -e .
+```
+
+#### Benefits of Developer Mode
+
+- **Live Updates**: Changes to source code are immediately reflected without reinstallation
+- **Easy Testing**: Test your modifications instantly
+- **Debugging**: Better debugging experience with direct access to source code
+- **Development Workflow**: Seamless integration with your development environment
+
+#### Development Commands
+
+```bash
+# Run tests
+pytest
+
+# Install development dependencies
+pip install -r requirements-dev.txt  # if available
+
+# Check code style
+flake8 datamax/
+black datamax/
+
+# Build package
+python setup.py sdist bdist_wheel
+```
+
+#### Making Changes
+
+After installing in developer mode, you can:
+
+1. Edit source code in the `datamax/` directory
+2. Changes are automatically available when you import the module
+3. Test your changes immediately without reinstalling
+4. Submit pull requests with your improvements
 
 ## 📋 System Requirements
 
@@ -315,7 +375,7 @@ This project is licensed under the [MIT License](LICENSE).
 - 📧 Email: cy.kron@foxmail.com
 - 🐛 Issues: [GitHub Issues](https://github.com/Hi-Dolphin/datamax/issues)
 - 📚 Documentation: [Project Homepage](https://github.com/Hi-Dolphin/datamax)
-
+- 💬 Wechat Group: <br><img src='wechat.png' width=300>
 ---
 
 ⭐ If this project helps you, please give us a star!

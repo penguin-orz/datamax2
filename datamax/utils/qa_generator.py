@@ -23,6 +23,19 @@ lock = threading.Lock()
 API_KEY = os.getenv("DASHSCOPE_API_KEY", "your-api-key-here")
 BASE_URL = os.getenv("DASHSCOPE_BASE_URL")
 
+def complete_api_url(base_url: str) -> str:
+    """
+    Normalize the given base_url so that it ends with the OpenAI-style
+    chat completions endpoint.
+    E.g. if user passes "https://api.provider.com/v1" it will become
+    "https://api.provider.com/v1/chat/completions".
+    """
+    url = base_url.rstrip("/")
+    # 如果还没以 /chat/completions 结尾，就自动拼上
+    if not url.endswith("/chat/completions"):
+        url = f"{url}/chat/completions"
+    return url
+
 # ------------prompt-----------------
 def get_system_prompt_for_match_label(tags_json, question):
     system_prompt = f"""
@@ -555,12 +568,13 @@ def process_answers(
     model: str,
     base_url: str,
     question_items: list,
-    message: list = None,
+    message: Optional[list] = None,
     max_workers=5,
 ) -> dict:
     """Generate answers using multi-threading"""
     qa_pairs = {}
-
+    if message is None:
+        message = []
     def _generate_answer(item):
         """Inner function for answer generation"""
         prompt = get_system_prompt_for_answer(item["page"], item["question"])
@@ -607,6 +621,11 @@ def generatr_qa_pairs(
     max_workers: int = 5,
     domain_tree: DomainTree = None,  
 ) -> list:
+    if message is None:
+        message = []
+    if domain_tree is None:
+        from datamax.utils.domain_tree import DomainTree
+        domain_tree = DomainTree([])
     qa_pairs = process_answers(
         question_items=question_info,
         message=message,
@@ -637,6 +656,184 @@ def generatr_qa_pairs(
         }
         res_list.append(qa_entry)
     return res_list
+
+
+def _interactive_tree_modification(domain_tree):
+    """
+    交互式自定义领域树结构
+    :param domain_tree: DomainTree实例
+    :return: 修改后的DomainTree实例
+    """
+    print("\n 是否需要进行树修改？")
+    print("支持的操作:")
+    print("1. 增加节点：xxx；父节点：xxx   （父节点可留空，留空则添加为根节点）")
+    print("2. 增加节点：xxx；父节点：xxx；子节点：xxx")
+    print("3. 删除节点：xxx")
+    print("4. 更新节点：新名称；原先节点：旧名称")
+    print("5. 结束树操作")
+    print("注意，节点的格式通常为：x.xx xxxx,如：‘1.1 货物运输组织与路径规划’或‘1 运输系统组织’")
+    print("\n请输入操作指令（输入'结束树操作'退出）:")
+    while True:
+        try:
+            user_input = input("> ").strip()
+            if user_input == "结束树操作":
+                print("✅ 树操作结束，继续QA对生成...")
+                break
+            elif user_input.startswith("增加节点："):
+                parts = user_input.split("；")
+                if len(parts) >= 2:
+                    node_name = parts[0].replace("增加节点：", "").strip()
+                    parent_name = parts[1].replace("父节点：", "").strip()
+                    if not parent_name:
+                        if domain_tree.add_node(node_name):
+                            print(f"✅ 成功将节点 '{node_name}' 作为根节点添加")
+                        else:
+                            print(f"❌ 添加失败：未知错误")
+                    elif len(parts) == 2:
+                        if domain_tree.add_node(node_name, parent_name):
+                            print(f"✅ 成功添加节点 '{node_name}' 到父节点 '{parent_name}' 下")
+                        else:
+                            print(f"❌ 添加失败：未找到父节点 '{parent_name}'")
+                    elif len(parts) == 3:
+                        child_name = parts[2].replace("子节点：", "").strip()
+                        if domain_tree.insert_node_between(node_name, parent_name, child_name):
+                            print(f"✅ 成功插入节点 '{node_name}' 到 '{parent_name}' 和 '{child_name}' 之间")
+                        else:
+                            print(f"❌ 插入失败：请检查父节点和子节点的关系")
+                    else:
+                        print("❌ 格式错误：请使用正确的格式")
+                else:
+                    print("❌ 格式错误：请使用正确的格式")
+            elif user_input.startswith("删除节点："):
+                node_name = user_input.replace("删除节点：", "").strip()
+                if domain_tree.remove_node(node_name):
+                    print(f"✅ 成功删除节点 '{node_name}' 及其所有子孙节点")
+                else:
+                    print(f"❌ 删除失败：未找到节点 '{node_name}'")
+            elif user_input.startswith("更新节点："):
+                parts = user_input.split("；")
+                if len(parts) == 2:
+                    new_name = parts[0].replace("更新节点：", "").strip()
+                    old_name = parts[1].replace("原先节点：", "").strip()
+                    if domain_tree.update_node(old_name, new_name):
+                        print(f"✅ 成功将节点 '{old_name}' 更新为 '{new_name}'")
+                    else:
+                        print(f"❌ 更新失败：未找到节点 '{old_name}'")
+                else:
+                    print("❌ 格式错误：请使用正确的格式，如：更新节点：新名称；原先节点：旧名称")
+            else:
+                print("❌ 未知操作，请使用正确的格式")
+            print("\n📝 当前树结构:")
+            print(domain_tree.visualize())
+            print("\n请输入下一个操作指令:")
+            print("支持的操作:")
+            print("1. 增加节点：xxx；父节点：xxx   （父节点可留空，留空则添加为根节点）")
+            print("2. 增加节点：xxx；父节点：xxx；子节点：xxx")
+            print("3. 删除节点：xxx")
+            print("4. 更新节点：新名称；原先节点：旧名称")
+            print("5. 结束树操作")
+            print("注意，节点的格式通常为：x.xx xxxx,如：‘1.1 货物运输组织与路径规划’或‘1 运输系统组织’")
+        except KeyboardInterrupt:
+            print("\n\n⚠️⚠️操作被中断⚠️⚠️，继续QA对生成...")
+            break
+        except Exception as e:
+            print(f"❌ 操作出错：{e}")
+            print("请重新输入操作指令:")
+    return domain_tree
+
+
+def full_qa_labeling_process(
+    content: str,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    chunk_size: int = 500,
+    chunk_overlap: int = 100,
+    question_number: int = 5,
+    max_workers: int = 5,
+    use_tree_label: bool = True,
+    messages: list = None,
+    interactive_tree: bool = True,
+):
+    """
+    封装完整的QA生成流程，包括分割、领域树生成与交互、问题生成、标签打标、答案生成。
+    """
+    from datamax.utils.qa_generator import (
+        process_domain_tree,
+        process_questions,
+        process_match_tags,
+        generatr_qa_pairs
+    )
+    import uuid
+
+    # 1. 分割内容
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        length_function=len,
+        is_separator_regex=False,
+    )
+    page_content = splitter.split_text(content)
+    # 2. 生成领域树（可选）
+    domain_tree = None
+    if use_tree_label:
+        from datamax.utils.domain_tree import DomainTree
+        domain_tree = process_domain_tree(
+            api_key=api_key,
+            base_url=base_url,
+            model=model_name,
+            text="\n".join(page_content),
+            temperature=0.7,
+            top_p=0.9,
+        )
+        if interactive_tree and domain_tree and domain_tree.tree:
+            print("\n" + "="*60)
+            print("🌳 生成的领域树结构:")
+            print("="*60)
+            print(domain_tree.visualize())
+            print("="*60)
+            domain_tree = _interactive_tree_modification(domain_tree)
+    #生成问题
+    question_info = process_questions(
+        api_key=api_key,
+        model=model_name,
+        base_url=base_url,
+        page_content=page_content,
+        question_number=question_number,
+        max_workers=max_workers,
+        message=messages,
+    )
+    for question_item in question_info:
+        if "qid" not in question_item:
+            question_item["qid"] = str(uuid.uuid4())
+    # 4. 标签打标（可选）
+    if use_tree_label and domain_tree and hasattr(domain_tree, 'to_json') and domain_tree.to_json():
+        q_match_list = process_match_tags(
+            api_key=api_key,
+            base_url=base_url,
+            model=model_name,
+            tags_json=domain_tree.to_json(),
+            questions=[q["question"] for q in question_info],
+            max_workers=max_workers
+        )
+        label_map = {item["question"]: item.get("label", "") for item in q_match_list}
+        for question_item in question_info:
+            question_item["label"] = label_map.get(question_item["question"], "")
+    else:
+        for question_item in question_info:
+            question_item["label"] = ""
+    # 5. 生成答案
+    qa_list = generatr_qa_pairs(
+        question_info=question_info,
+        api_key=api_key,
+        base_url=base_url,
+        model_name=model_name,
+        question_number=question_number,
+        max_workers=max_workers,
+        domain_tree=domain_tree if use_tree_label else None
+    )
+    return qa_list
 
 
 if __name__ == "__main__":
