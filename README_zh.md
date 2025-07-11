@@ -238,10 +238,10 @@ DataMax 支持通过 bespokelabs-curator 调用通义千问、GPT 等大模型�
 from datamax import DataMax
 
 response = DataMax.call_llm_with_bespokelabs(
-    prompt="请写一首关于智能数据标注的现代诗。",
-    model_name="qwen-turbo",  
-    api_key="sk-xxx",
-    base_url="https://dashscope.aliyuncs.com/v1"
+    prompt="写一首关于智能数据标注的现代诗。",
+    model_name="your-model-name",  
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1"
 )
 print(response)
 ```
@@ -254,9 +254,9 @@ dm = DataMax(file_path="example.txt")
 
 qa_pairs = dm.qa_generator_with_bespokelabs(
     content="大模型技术可以用于高效生成数据标签。",
-    model_name="qwen-turbo",
-    api_key="sk-xxx",
-    base_url="https://dashscope.aliyuncs.com/v1"
+    model_name="your-model-name",# 例如 "gpt-3.5-turbo", "qwen-turbo"
+    api_key="your-api-key",
+    base_url="https://api.openai.com/v1"
 )
 for qa in qa_pairs:
     print(qa)
