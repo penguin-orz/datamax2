@@ -134,30 +134,61 @@ class DataMax(BaseLife):
 
     @classmethod
     def call_llm_with_bespokelabs(cls, prompt: str, model_name: str, api_key: str, base_url: str) -> str:
+        """
+        Call the BespokeLabs-compatible LLM with a prompt and return the generated result.
+
+        :param prompt: The user input prompt to be sent to the model.
+        :param model_name: Name of the model to be used (e.g., 'qwen-turbo').
+        :param api_key: API key for authentication.
+        :param base_url: Base URL of the LLM API endpoint.
+        :return: The generated text response from the model.
+        """
         backend_params = {
             "api_key": api_key,
             "base_url": base_url,
         }
         llm = LLM(
             model_name=model_name,
-            backend="openai",
+            backend="openai",  # Use OpenAI-compatible backend
             backend_params=backend_params,
         )
         messages = [{"role": "user", "content": prompt}]
         response = llm.client.chat.completions.create(
             model=llm.model_name,
             messages=messages,
-
         )
         return response.choices[0].message.content
 
     def qa_generator_with_bespokelabs(self, content: str, model_name: str, api_key: str, base_url: str):
+        """
+        Automatically generate QA pairs from content using the BespokeLabs-compatible LLM.
+
+        :param content: The original content to generate QA pairs from.
+        :param model_name: Name of the model to be used.
+        :param api_key: API key for authentication.
+        :param base_url: Base URL of the LLM API endpoint.
+        :return: A list of generated QA pairs as strings.
+        """
+
         def chunk_text(text, max_len=1000):
+            """
+            Split the input text into smaller chunks to fit within model token limits.
+
+            :param text: The full text to split.
+            :param max_len: Maximum length of each chunk.
+            :return: A list of text chunks.
+            """
             return [text[i:i + max_len] for i in range(0, len(text), max_len)]
 
         def generate_qa(chunk):
+            """
+            Generate a single QA pair from a text chunk by calling the LLM.
+
+            :param chunk: A segment of the content.
+            :return: Generated QA text.
+            """
             prompt = f"请根据以下内容生成问答对：\n{chunk}\n问答格式为：问题：... 答案：..."
-            # 调用类方法，用 cls 或类名更明确
+            # Use class method for LLM invocation
             return DataMax.call_llm_with_bespokelabs(
                 prompt=prompt,
                 model_name=model_name,
