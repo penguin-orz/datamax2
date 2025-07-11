@@ -3,21 +3,25 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Optional, Any
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 from openai import OpenAI
-
+from datamax.utils.lifecycle_types import LifeType
 from datamax.utils import data_cleaner
-from datamax.utils.qa_generator import generate_qa_from_content
+from datamax.parser.base import BaseLife
+import datamax.utils.qa_generator as qa_gen
 
+from concurrent.futures import ThreadPoolExecutor
+from bespokelabs.curator.llm.llm import LLM
 
 class ModelInvoker:
     def __init__(self):
         self.client = None
 
     def invoke_model(self, api_key, base_url, model_name, messages):
+        base_url = qa_gen.complete_api_url(base_url)
         self.client = OpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -37,6 +41,7 @@ class ParserFactory:
         file_path: str,
         use_mineru: bool = False,
         to_markdown: bool = False,
+        domain: str = "Technology",
     ):
         """
         Create a parser instance based on the file extension.
@@ -55,8 +60,8 @@ class ParserFactory:
             ".epub": "EpubParser",
             ".html": "HtmlParser",
             ".txt": "TxtParser",
-            ".pptx": "PPtxParser",
-            ".ppt": "PPtParser",
+            ".pptx": "PptxParser",
+            ".ppt": "PptParser",
             ".pdf": "PdfParser",
             ".jpg": "ImageParser",
             ".jpeg": "ImageParser",
@@ -79,33 +84,36 @@ class ParserFactory:
             # Dynamically import the module and get the class
             module = importlib.import_module(module_name)
             parser_class = getattr(module, parser_class_name)
+            if parser_class_name != 'PdfParser' and use_mineru == True:
+                raise ValueError("MinerU is only supported for PDF files")
 
             # Special handling for PdfParser arguments
             if parser_class_name == "PdfParser":
                 return parser_class(
                     file_path=file_path,
                     use_mineru=use_mineru,
+                    domain=domain,
                 )
             elif parser_class_name == "DocxParser" or parser_class_name == "DocParser" or parser_class_name == "WpsParser":
                 return parser_class(
-                    file_path=file_path, to_markdown=to_markdown, use_uno=True
+                    file_path=file_path, to_markdown=to_markdown, use_uno=True, domain=domain,
                 )
             elif parser_class_name == "XlsxParser":
-                return parser_class(file_path=file_path)
+                return parser_class(file_path=file_path, domain=domain,)
             else:
-                return parser_class(file_path=file_path)
-
+                return parser_class(file_path=file_path, domain=domain,)
         except (ImportError, AttributeError) as e:
             raise e
 
 
-class DataMax:
+class DataMax(BaseLife):
     def __init__(
         self,
         file_path: Union[str, list] = "",
         use_mineru: bool = False,
         to_markdown: bool = False,
         ttl: int = 3600,
+        domain: str = "Technology",
     ):
         """
         Initialize the DataMaxParser with file path and parsing options.
@@ -115,6 +123,7 @@ class DataMax:
         :param to_markdown: Flag to indicate whether the output should be in Markdown format.
         :param ttl: Time to live for the cache.
         """
+        super().__init__(domain=domain)
         self.file_path = file_path
         self.use_mineru = use_mineru
         self.to_markdown = to_markdown
@@ -122,6 +131,43 @@ class DataMax:
         self.model_invoker = ModelInvoker()
         self._cache = {}
         self.ttl = ttl
+
+    @classmethod
+    def call_llm_with_bespokelabs(cls, prompt: str, model_name: str, api_key: str, base_url: str) -> str:
+        backend_params = {
+            "api_key": api_key,
+            "base_url": base_url,
+        }
+        llm = LLM(
+            model_name=model_name,
+            backend="openai",
+            backend_params=backend_params,
+        )
+        messages = [{"role": "user", "content": prompt}]
+        response = llm.client.chat.completions.create(
+            model=llm.model_name,
+            messages=messages,
+
+        )
+        return response.choices[0].message.content
+
+    def qa_generator_with_bespokelabs(self, content: str, model_name: str, api_key: str, base_url: str):
+        def chunk_text(text, max_len=1000):
+            return [text[i:i + max_len] for i in range(0, len(text), max_len)]
+
+        def generate_qa(chunk):
+            prompt = f"请根据以下内容生成问答对：\n{chunk}\n问答格式为：问题：... 答案：..."
+            # 调用类方法，用 cls 或类名更明确
+            return DataMax.call_llm_with_bespokelabs(
+                prompt=prompt,
+                model_name=model_name,
+                api_key=api_key,
+                base_url=base_url,
+            )
+
+        chunks = chunk_text(content)
+        results = [generate_qa(chunk) for chunk in chunks]
+        return results
 
     def set_data(self, file_name, parsed_data):
         """
@@ -151,8 +197,8 @@ class DataMax:
                 for f in self.file_path:
                     file_name = os.path.basename(f)
                     if (
-                        file_name in self._cache
-                        and self._cache[file_name]["ttl"] > time.time()
+                            file_name in self._cache
+                            and self._cache[file_name]["ttl"] > time.time()
                     ):
                         logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
                         parsed_data.append(self._cache[file_name]["data"])
@@ -173,11 +219,12 @@ class DataMax:
             elif isinstance(self.file_path, str) and os.path.isfile(self.file_path):
                 file_name = os.path.basename(self.file_path)
                 if (
-                    file_name in self._cache
-                    and self._cache[file_name]["ttl"] > time.time()
+                        file_name in self._cache
+                        and self._cache[file_name]["ttl"] > time.time()
                 ):
                     logger.info(f"✅ [Cache Hit] Using cached data for {file_name}")
-                    return self._cache[file_name]["data"]
+                    self.parsed_data = self._cache[file_name]["data"]
+                    return self.parsed_data
                 else:
                     logger.info(
                         f"⏳ [Cache Miss] No cached data for {file_name}, parsing..."
@@ -199,8 +246,8 @@ class DataMax:
                     if os.path.isfile(f):
                         file_name = os.path.basename(f)
                         if (
-                            file_name in self._cache
-                            and self._cache[file_name]["ttl"] > time.time()
+                                file_name in self._cache
+                                and self._cache[file_name]["ttl"] > time.time()
                         ):
                             logger.info(
                                 f"✅ [Cache Hit] Using cached data for {file_name}"
@@ -233,40 +280,69 @@ class DataMax:
 
         :return: Cleaned data
         """
+        # 1) 准备原始内容
         if text:
             cleaned_text = text
         elif self.parsed_data:
             cleaned_text = self.parsed_data.get("content")
         else:
             raise ValueError("No data to clean.")
+        # 2) 触发“清洗开始”
+        lc_start = self.generate_lifecycle(
+            source_file=self.file_path,
+            domain=self.domain,
+            life_type=LifeType.DATA_CLEANING,
+            usage_purpose="Data Cleaning",
+        ).to_dict()
 
-        for method in method_list:
-            if method == "abnormal":
-                cleaned_text = (
-                    data_cleaner.AbnormalCleaner(cleaned_text).to_clean().get("text")
-                )
-            elif method == "filter":
-                cleaned_text = data_cleaner.TextFilter(cleaned_text).to_filter()
-                cleaned_text = cleaned_text.get("text") if cleaned_text else ""
-            elif method == "private":
-                cleaned_text = (
-                    data_cleaner.PrivacyDesensitization(cleaned_text)
-                    .to_private()
-                    .get("text")
-                )
+        try:
+            # 3) 执行清洗步骤
+            for method in method_list:
+                if method == "abnormal":
+                    cleaned_text = data_cleaner.AbnormalCleaner(cleaned_text).to_clean().get("text")
+                elif method == "filter":
+                    cleaned_text = data_cleaner.TextFilter(cleaned_text).to_filter().get("text", "")
+                elif method == "private":
+                    cleaned_text = data_cleaner.PrivacyDesensitization(cleaned_text).to_private().get("text")
 
-        if self.parsed_data:
-            origin_dict = self.parsed_data
-            origin_dict["content"] = cleaned_text
+            # 4) 清洗成功，触发“清洗完成”
+            lc_end = self.generate_lifecycle(
+                source_file=self.file_path,
+                domain=self.domain,
+                life_type=LifeType.DATA_CLEANED,
+                usage_purpose="Data Cleaning",
+            ).to_dict()
+
+        except Exception as e:
+            # 5) 清洗失败，触发“清洗失败”
+            lc_fail = self.generate_lifecycle(
+                source_file=self.file_path,
+                domain=self.domain,
+                life_type=LifeType.DATA_CLEAN_FAILED,
+                usage_purpose="Data Cleaning",
+            ).to_dict()
+            # 把失败事件也加入到 parsed_data 中再抛出
+            if self.parsed_data and isinstance(self.parsed_data, dict):
+                self.parsed_data.setdefault("lifecycle", []).append(lc_start)
+                self.parsed_data["lifecycle"].append(lc_fail)
+            raise
+
+        # 6) 更新 content 并合并生命周期
+        if self.parsed_data and isinstance(self.parsed_data, dict):
+            origin = self.parsed_data
+            origin["content"] = cleaned_text
+            origin.setdefault("lifecycle", []).extend([lc_start, lc_end])
+            # 重置 parsed_data 以避免二次污染
             self.parsed_data = None
-            return origin_dict
+            return origin
         else:
+            # 仅返回纯文本时，也可以返回 lifecycle 信息
             return cleaned_text
 
     def complete_api_url(self, base_url):
         """
         Automatically complete the API URL path for the website
-        
+
         rules:
             1. /chat/completions as default endpoint
             2. Only add version if not already present in path
@@ -308,6 +384,8 @@ class DataMax:
 
     def get_pre_label(
         self,
+        *,
+        content: str = None,
         api_key: str,
         base_url: str,
         model_name: str,
@@ -316,7 +394,10 @@ class DataMax:
         question_number: int = 5,
         max_workers: int = 5,
         language: str = "zh",
-        messages: List[Dict[str, str]] = None,
+        use_tree_label: bool = False,
+        messages: list = None,
+        interactive_tree: bool = False,
+        custom_domain_tree: Optional[List[Dict[str, Any]]] = None,
     ):
         """
         Generate pre-labeling data based on processed document content instead of file path
@@ -329,46 +410,97 @@ class DataMax:
         :param question_number: Number of questions generated per chunk
         :param max_workers: Number of concurrent workers
         :param language: Language for QA generation ("zh" for Chinese, "en" for English)
+        :param use_tree_label: Whether to use domain tree label for generating questions
         :param messages: Custom messages
+        :param interactive_tree: Whether to allow interactive tree modification
+        :param custom_domain_tree: Custom domain tree structure in the format:
+            [
+                {
+                    "label": "1 一级领域标签",
+                    "child": [
+                        {"label": "1.1 二级领域标签1"},
+                        {"label": "1.2 二级领域标签2"}
+                    ]
+                },
+                {
+                    "label": "2 一级领域标签(无子标签)"
+                }
+            ]
         :return: List of QA pairs
         """
-        # First get the processed data
-        processed_data = self.get_data()
-
-        # If it's a list (multiple files), merge all content
-        if isinstance(processed_data, list):
-            content_list = []
-            for data in processed_data:
-                if isinstance(data, dict) and "content" in data:
-                    content_list.append(data["content"])
-                elif isinstance(data, str):
-                    content_list.append(data)
-            content = "\n\n".join(content_list)
-        # If it's a dictionary for a single file
-        elif isinstance(processed_data, dict) and "content" in processed_data:
-            content = processed_data["content"]
-        # If it's a string
-        elif isinstance(processed_data, str):
-            content = processed_data
+        import datamax.utils.qa_generator as qa_gen
+        # 如果外部传入了 content，就直接用；否则再走 parse/clean 流程
+        if content is not None:
+            text = content
         else:
-            raise ValueError("Unable to extract content field from processed data")
+            processed = self.get_data()
+            # 与原逻辑一致，将多文件或 dict/str 转为单一字符串
+            if isinstance(processed, list):
+                parts = [d["content"] if isinstance(d, dict) else d for d in processed]
+                text = "\n\n".join(parts)
+            elif isinstance(processed, dict):
+                text = processed.get("content", "")
+            else:
+                text = processed
+            file_path = self.file_path
 
-        # complete url
-        base_url = self.complete_api_url(base_url)
-
-        # Generate QA pairs using content instead of reading files
-        return generate_qa_from_content(
-            content=content,
-            api_key=api_key,
-            base_url=base_url,
-            model_name=model_name,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            question_number=question_number,
-            language=language,
-            max_workers=max_workers,
-            message=messages,
-        )
+        # 打点：开始 DATA_LABELLING
+        if self.parsed_data is not None and isinstance(self.parsed_data, dict):
+            self.parsed_data.setdefault("lifecycle", []).append(
+                self.generate_lifecycle(
+                    source_file=self.file_path,
+                    domain=self.domain,
+                    life_type=LifeType.DATA_LABELLING,
+                    usage_purpose="Labeling",
+                ).to_dict()
+            )
+        try:
+            base_url = qa_gen.complete_api_url(base_url)
+            data = qa_gen.full_qa_labeling_process(
+                content=text,
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                question_number=question_number,
+                max_workers=max_workers,
+                use_tree_label=use_tree_label,
+                messages=messages,
+                interactive_tree=interactive_tree,
+                custom_domain_tree=custom_domain_tree,
+                use_mineru=self.use_mineru,  # 传递use_mineru参数
+            )
+            # 打点：成功 DATA_LABELLED
+            self.parsed_data["lifecycle"].append(
+                self.generate_lifecycle(
+                    source_file=self.file_path,
+                    domain=self.domain,
+                    life_type=LifeType.DATA_LABELLED,
+                    usage_purpose="Labeling",
+                ).to_dict()
+            )
+            # show preview of the first 10 qa pairs
+            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                print("\n===== 预览前10条QA对 =====")
+                for i, qa in enumerate(data[:10]):
+                    print(f"\n--- QA对 {i+1} ---")
+                    print(f"问题: {qa.get('instruction', qa.get('question', 'N/A'))}")
+                    print(f"答案: {qa.get('output', 'N/A')}")
+                    print(f"标签: {qa.get('label', 'N/A')}")
+                print("========================\n")
+            return data
+        except Exception as e:
+            # 打点：失败 DATA_LABEL_FAILED
+            self.parsed_data["lifecycle"].append(
+                self.generate_lifecycle(
+                    source_file=self.file_path,
+                    domain=self.domain,
+                    life_type=LifeType.DATA_LABEL_FAILED,
+                    usage_purpose="Labeling",
+                ).to_dict()
+            )
+            raise
 
     def save_label_data(self, label_data: list, save_file_name: str = None):
         """
@@ -393,7 +525,7 @@ class DataMax:
 
     @staticmethod
     def split_text_into_paragraphs(
-        text: str, max_length: int = 500, chunk_overlap: int = 100
+            text: str, max_length: int = 500, chunk_overlap: int = 100
     ):
         """
         Split text into paragraphs by sentence boundaries, each paragraph not exceeding max_length characters.
@@ -430,7 +562,7 @@ class DataMax:
                     paragraphs.append(current_paragraph[:split_point])
                     # Update overlap buffer
                     overlap_buffer = (
-                        current_paragraph[split_point - chunk_overlap : split_point]
+                        current_paragraph[split_point - chunk_overlap: split_point]
                         if chunk_overlap > 0
                         else ""
                     )
@@ -445,7 +577,7 @@ class DataMax:
 
     @staticmethod
     def split_with_langchain(
-        text: str, chunk_size: int = 500, chunk_overlap: int = 100
+            text: str, chunk_size: int = 500, chunk_overlap: int = 100
     ):
         """
         Split text using LangChain's intelligent text splitting
@@ -464,11 +596,11 @@ class DataMax:
         return text_splitter.split_text(text)
 
     def split_data(
-        self,
-        parsed_data: Union[str, dict] = None,
-        chunk_size: int = 500,
-        chunk_overlap: int = 100,
-        use_langchain: bool = False,
+            self,
+            parsed_data: Union[str, dict] = None,
+            chunk_size: int = 500,
+            chunk_overlap: int = 100,
+            use_langchain: bool = False,
     ):
         """
         Improved splitting method with LangChain option
@@ -531,6 +663,7 @@ class DataMax:
                 use_mineru=self.use_mineru,
                 file_path=file_path,
                 to_markdown=self.to_markdown,
+                domain=self.domain,
             )
             if parser:
                 return parser.parse(file_path=file_path)
