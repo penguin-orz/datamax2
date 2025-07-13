@@ -102,6 +102,7 @@ class ParserFactory:
                 return parser_class(file_path=file_path, domain=domain,)
             else:
                 return parser_class(file_path=file_path, domain=domain,)
+
         except (ImportError, AttributeError) as e:
             raise e
 
