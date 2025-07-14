@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="pydatamax",
-    version='v0.1.16',
+    version='v0.1.17',
     packages=find_packages(),
     install_requires=[
         "oss2>=2.19.1,<3.0.0",
@@ -41,6 +41,7 @@ setup(
         "langchain>=0.3.0,<1.0.0",
         "langchain-community>=0.3.0,<1.0.0",
         "ebooklib==0.19",
+         "-e ./curator",
         "setuptools"
     ],
     author="ccy",
