@@ -13,8 +13,7 @@ from datamax.utils import data_cleaner
 from datamax.parser.base import BaseLife
 import datamax.utils.qa_generator as qa_gen
 
-from concurrent.futures import ThreadPoolExecutor
-from bespokelabs.curator.llm.llm import LLM
+from bespokelabs import curator
 
 class ModelInvoker:
     def __init__(self):
@@ -136,61 +135,63 @@ class DataMax(BaseLife):
     @classmethod
     def call_llm_with_bespokelabs(cls, prompt: str, model_name: str, api_key: str, base_url: str) -> str:
         """
-        Call the BespokeLabs-compatible LLM with a prompt and return the generated result.
+        Call the BespokeLabs LLM using the provided prompt and return the generated response.
 
-        :param prompt: The user input prompt to be sent to the model.
-        :param model_name: Name of the model to be used (e.g., 'qwen-turbo').
+        :param prompt: The input prompt string.
+        :param model_name: The name of the model to invoke.
         :param api_key: API key for authentication.
-        :param base_url: Base URL of the LLM API endpoint.
-        :return: The generated text response from the model.
+        :param base_url: Base URL of the API endpoint.
+        :return: The generated text response.
         """
         backend_params = {
             "api_key": api_key,
             "base_url": base_url,
         }
-        llm = LLM(
+        llm = curator.LLM(
             model_name=model_name,
-            backend="openai",  # Use OpenAI-compatible backend
+            backend="openai",  # Use openai-compatible backend
             backend_params=backend_params,
         )
         messages = [{"role": "user", "content": prompt}]
-        response = llm.client.chat.completions.create(
-            model=llm.model_name,
-            messages=messages,
-        )
-        return response.choices[0].message.content
+        try:
+            response = llm.client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            raise RuntimeError(f"Error during LLM call: {e}")
 
-    def qa_generator_with_bespokelabs(self, content: str, model_name: str, api_key: str, base_url: str):
+    def qa_generator_with_bespokelabs(self, content: str, model_name: str, api_key: str, base_url: str) -> list:
         """
-        Automatically generate QA pairs from content using the BespokeLabs-compatible LLM.
+        Generate question-answer pairs from the given content using the BespokeLabs LLM.
 
-        :param content: The original content to generate QA pairs from.
-        :param model_name: Name of the model to be used.
+        :param content: The input content string to generate QA pairs from.
+        :param model_name: The name of the model to invoke.
         :param api_key: API key for authentication.
-        :param base_url: Base URL of the LLM API endpoint.
-        :return: A list of generated QA pairs as strings.
+        :param base_url: Base URL of the API endpoint.
+        :return: A list of QA pairs as strings.
         """
 
-        def chunk_text(text, max_len=1000):
+        def chunk_text(text: str, max_len: int = 1000) -> list:
             """
-            Split the input text into smaller chunks to fit within model token limits.
+            Split text into smaller chunks to fit model token limits.
 
-            :param text: The full text to split.
-            :param max_len: Maximum length of each chunk.
-            :return: A list of text chunks.
+            :param text: Original text to split.
+            :param max_len: Maximum length per chunk.
+            :return: List of text chunks.
             """
             return [text[i:i + max_len] for i in range(0, len(text), max_len)]
 
-        def generate_qa(chunk):
+        def generate_qa(chunk: str) -> str:
             """
-            Generate a single QA pair from a text chunk by calling the LLM.
+            Generate a QA pair from a text chunk by invoking the LLM.
 
-            :param chunk: A segment of the content.
-            :return: Generated QA text.
+            :param chunk: Text chunk to process.
+            :return: Generated QA string.
             """
-            prompt = f"请根据以下内容生成问答对：\n{chunk}\n问答格式为：问题：... 答案：..."
-            # Use class method for LLM invocation
-            return DataMax.call_llm_with_bespokelabs(
+            prompt = f"Please generate question-answer pairs based on the following content:\n{chunk}\nFormat: Question: ... Answer: ..."
+            return self.call_llm_with_bespokelabs(
                 prompt=prompt,
                 model_name=model_name,
                 api_key=api_key,
@@ -198,7 +199,13 @@ class DataMax(BaseLife):
             )
 
         chunks = chunk_text(content)
-        results = [generate_qa(chunk) for chunk in chunks]
+        results = []
+        for chunk in chunks:
+            try:
+                qa_text = generate_qa(chunk)
+                results.append(qa_text)
+            except Exception as e:
+                results.append(f"Error generating QA for chunk: {e}")
         return results
 
     def set_data(self, file_name, parsed_data):
