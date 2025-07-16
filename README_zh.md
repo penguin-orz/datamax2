@@ -235,31 +235,53 @@ DataMax 支持通过 bespokelabs-curator 调用通义千问、GPT 等大模型�
 ### 1. 通用大模型调用
 
 ```python
-from datamax import DataMax
+import unittest
+from datamax.parser.core import DataMax
 
-response = DataMax.call_llm_with_bespokelabs(
-    prompt="写一首关于智能数据标注的现代诗。",
-    model_name="your-model-name",  
-    api_key="your-api-key",
-    base_url="https://api.openai.com/v1"
-)
-print(response)
+class TestCallLLM(unittest.TestCase):
+    def test_call_llm(self):
+        """
+        Test the call_llm_with_bespokelabs method independently.
+        """
+        prompt = "什么是人工智能？"
+        try:
+            result = DataMax.call_llm_with_bespokelabs(
+                prompt=prompt,
+                model_name="your-model-name",
+                api_key="your-api-key",
+                base_url="https://api.openai.com/v1"
+            )
+            print("LLM调用结果文本:", result)
+            self.assertIn("人工智能", str(result))
+        except Exception as e:
+            self.fail(f"call_llm_with_bespokelabs raised Exception: {e}")
+
+if __name__ == '__main__':
+    unittest.main()
 ```
 ### 2.自动化标注示例 — 自动问答对生成
 
 ```python
-from datamax import DataMax
+import unittest
+from datamax.parser.core import DataMax
 
-dm = DataMax(file_path="example.txt")
+class TestQAGenerator(unittest.TestCase):
+    def test_qa_generator(self):
+        try:
+            results = DataMax.qa_generator_with_bespokelabs(
+                "人工智能是模拟人类智能的技术。",
+                "your-model-name",
+                "your-api-key",
+                "https://api.openai.com/v1"
+            )
+            print("QA生成结果:", results)
+            self.assertGreater(len(results), 0)
+            self.assertTrue(any("人工智能" in str(item) for item in results))
+        except Exception as e:
+            self.fail(f"qa_generator_with_bespokelabs raised Exception: {e}")
 
-qa_pairs = dm.qa_generator_with_bespokelabs(
-    content="大模型技术可以用于高效生成数据标签。",
-    model_name="your-model-name",# 例如 "gpt-3.5-turbo", "qwen-turbo"
-    api_key="your-api-key",
-    base_url="https://api.openai.com/v1"
-)
-for qa in qa_pairs:
-    print(qa)
+if __name__ == '__main__':
+    unittest.main()
 ```
 ✅该方法支持OpenAI/Qwen兼容的API，并依赖于bespokelabs-curattor的提示格式化和LLM编排框架。
 ## ⚙️ 环境配置

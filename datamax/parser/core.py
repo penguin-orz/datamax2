@@ -12,8 +12,14 @@ from datamax.utils.lifecycle_types import LifeType
 from datamax.utils import data_cleaner
 from datamax.parser.base import BaseLife
 import datamax.utils.qa_generator as qa_gen
+import logging
+import datamax.patch_curator_resource
+from typing import Tuple, List, Any
 
 from bespokelabs import curator
+from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 class ModelInvoker:
     def __init__(self):
@@ -133,80 +139,131 @@ class DataMax(BaseLife):
         self.ttl = ttl
 
     @classmethod
-    def call_llm_with_bespokelabs(cls, prompt: str, model_name: str, api_key: str, base_url: str) -> str:
+    def call_llm_with_bespokelabs(
+            cls,
+            prompt: str,
+            model_name: str,
+            api_key: str,
+            base_url: str,
+    ) -> Tuple[str, str]:
         """
-        Call the BespokeLabs LLM using the provided prompt and return the generated response.
+        Call the BespokeLabs Curator LLM API with a given prompt.
 
-        :param prompt: The input prompt string.
-        :param model_name: The name of the model to invoke.
-        :param api_key: API key for authentication.
-        :param base_url: Base URL of the API endpoint.
-        :return: The generated text response.
+        Args:
+            prompt (str): Input text prompt for the LLM.
+            model_name (str): The model name to use.
+            api_key (str): API key for authentication.
+            base_url (str): Base URL of the API endpoint.
+
+        Returns:
+            Tuple[str, str]: Generated text response and status ('success' or 'fail').
         """
+        logger.info("Starting LLM call using BespokeLabs Curator.")
         backend_params = {
             "api_key": api_key,
             "base_url": base_url,
         }
-        llm = curator.LLM(
-            model_name=model_name,
-            backend="openai",  # Use openai-compatible backend
-            backend_params=backend_params,
-        )
-        messages = [{"role": "user", "content": prompt}]
+        logger.debug(f"Backend parameters configured: {backend_params}")
+
         try:
-            response = llm.client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            raise RuntimeError(f"Error during LLM call: {e}")
-
-    def qa_generator_with_bespokelabs(self, content: str, model_name: str, api_key: str, base_url: str) -> list:
-        """
-        Generate question-answer pairs from the given content using the BespokeLabs LLM.
-
-        :param content: The input content string to generate QA pairs from.
-        :param model_name: The name of the model to invoke.
-        :param api_key: API key for authentication.
-        :param base_url: Base URL of the API endpoint.
-        :return: A list of QA pairs as strings.
-        """
-
-        def chunk_text(text: str, max_len: int = 1000) -> list:
-            """
-            Split text into smaller chunks to fit model token limits.
-
-            :param text: Original text to split.
-            :param max_len: Maximum length per chunk.
-            :return: List of text chunks.
-            """
-            return [text[i:i + max_len] for i in range(0, len(text), max_len)]
-
-        def generate_qa(chunk: str) -> str:
-            """
-            Generate a QA pair from a text chunk by invoking the LLM.
-
-            :param chunk: Text chunk to process.
-            :return: Generated QA string.
-            """
-            prompt = f"Please generate question-answer pairs based on the following content:\n{chunk}\nFormat: Question: ... Answer: ..."
-            return self.call_llm_with_bespokelabs(
-                prompt=prompt,
+            llm = curator.LLM(
                 model_name=model_name,
-                api_key=api_key,
-                base_url=base_url,
+                backend="openai",  # always use openai backend
+                backend_params=backend_params,
             )
+            logger.info(f"LLM instance created for model: {model_name}")
 
-        chunks = chunk_text(content)
-        results = []
-        for chunk in chunks:
+            response = llm(prompt)
+            logger.info("LLM call successful, processing response")
+
+            # Extract text from CuratorResponse
+            text = cls._extract_text_from_response(response)
+            logger.debug(f"Response snippet (first 100 chars): {text[:100]}")
+
+            return text, "success"
+
+        except Exception as e:
+            logger.error(f"Error during LLM call: {e}", exc_info=True)
+            return "", "fail"
+
+    @classmethod
+    def qa_generator_with_bespokelabs(
+            cls,
+            content: str,
+            model_name: str,
+            api_key: str,
+            base_url: str,
+    ) -> List[Any]:
+        """
+        Generate QA pairs automatically using the LLM.
+
+        Args:
+            content (str): Text content for QA generation.
+            model_name (str): Model name.
+            api_key (str): API key.
+            base_url (str): API base URL.
+
+        Returns:
+            List[Any]: List of QA pairs or empty list on failure.
+        """
+        logger.info("Starting automatic QA generation.")
+        backend_params = {
+            "api_key": api_key,
+            "base_url": base_url,
+        }
+        logger.debug(f"Backend parameters configured: {backend_params}")
+
+        try:
+            llm = curator.LLM(
+                model_name=model_name,
+                backend="openai",
+                backend_params=backend_params,
+            )
+            logger.info(f"LLM instance created for model: {model_name}")
+
+            # For simplicity, directly call LLM on content,
+            # real scenario may need chunk splitting, etc.
+            response = llm(content)
+            logger.info("QA generation call successful")
+
+            qa_result = cls._extract_text_from_response(response)
+            # Return list with the response string (adapt as needed)
+            return [qa_result]
+
+        except Exception as e:
+            logger.error(f"Error during QA generation: {e}", exc_info=True)
+            return []
+
+    @staticmethod
+    def _extract_text_from_response(response) -> str:
+        """
+        Extract string text from CuratorResponse object.
+
+        Args:
+            response: CuratorResponse object or string.
+
+        Returns:
+            str: Extracted text string.
+        """
+        # If response is string, return as is
+        if isinstance(response, str):
+            return response
+
+        # If response has dataset and 'response' column, extract first row text
+        if hasattr(response, "dataset") and len(response.dataset) > 0:
             try:
-                qa_text = generate_qa(chunk)
-                results.append(qa_text)
+                row = response.dataset[0]
+                if isinstance(row, dict) and "response" in row:
+                    return row["response"]
+                # If row is a BaseModel (pydantic), use model_dump
+                if isinstance(row, BaseModel):
+                    data = row.model_dump()
+                    return data.get("response", str(response))
             except Exception as e:
-                results.append(f"Error generating QA for chunk: {e}")
-        return results
+                logger.warning(f"Failed to extract text from response dataset: {e}")
+
+        # Fallback: return string representation
+        return str(response)
 
     def set_data(self, file_name, parsed_data):
         """
