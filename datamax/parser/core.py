@@ -72,7 +72,7 @@ class ParserFactory:
         if not parser_class_name:
             return None
 
-        if file_extension in [".jpg", "jpeg", ".png", ".webp"]:
+        if file_extension in [".jpg", ".jpeg", ".png", ".webp"]:
             module_name = f"datamax.parser.image_parser"
         else:
             # Dynamically determine the module name based on the file extension
