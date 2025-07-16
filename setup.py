@@ -16,7 +16,7 @@ setup(
         "pymupdf>=1.26.0,<2.0.0",
         "pypdf>=5.5.0,<6.0.0",
         "openpyxl>=3.1.5,<4.0.0",
-        "pandas>=2.2.3,<3.0.0",
+        "pandas>=2.2.2,<3.0.0",
         "numpy>=2.2.6,<3.0.0",
         "requests>=2.32.3,<3.0.0",
         "tqdm>=4.67.1,<5.0.0",
@@ -41,7 +41,11 @@ setup(
         "langchain>=0.3.0,<1.0.0",
         "langchain-community>=0.3.0,<1.0.0",
         "ebooklib==0.19",
+<<<<<<< Updated upstream
          "-e ./curator",
+=======
+        "bespokelabs-curator @ git+https://github.com/bespokelabsai/curator.git@8389f4c6ee2150f845c27211505356a5ad474a2e",
+>>>>>>> Stashed changes
         "setuptools"
     ],
     author="ccy",
