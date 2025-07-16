@@ -20,15 +20,15 @@ const config = {
   },
 
   // Set the production url of your site here
-  url: 'https://Hi-Dolphin.github.io',
+  url: 'https://penguin-orz.github.io',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/datamax/',
+  baseUrl: '/datamax2/',
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'Hi-Dolphin', // Usually your GitHub org/user name.
-  projectName: 'datamax', // Usually your repo name.
+  organizationName: 'penguin-orz', // Usually your GitHub org/user name.
+  projectName: 'datamax2', // Usually your repo name.
   deploymentBranch: 'main', // The branch that Github pages will deploy from.
 
   onBrokenLinks: 'throw',
